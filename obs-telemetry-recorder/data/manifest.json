@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "tracemotion-obs",
+  "name": "TraceMotion Telemetry Recorder",
+  "version": "1.0.0",
+  "description": "High-frequency mouse telemetry capture plugin for Recordly and Adobe After Effects post-production.",
+  "author": "Istiyak",
+  "website": "https://github.com/istiyak"
+}

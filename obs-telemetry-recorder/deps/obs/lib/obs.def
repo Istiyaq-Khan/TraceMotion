@@ -1,0 +1,10 @@
+LIBRARY obs.dll 
+EXPORTS 
+    blog 
+    obs_get_video_info 
+    obs_output_get_settings 
+    obs_data_get_string 
+    obs_data_release 
+    obs_output_release 
+    bfree 
+    os_gettime_ns
