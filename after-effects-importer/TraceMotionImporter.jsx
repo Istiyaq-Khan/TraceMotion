@@ -120,6 +120,28 @@
             }
             return null;
         },
+        findFresh: function (root, pathNames) {
+            if (!root) return null;
+            var curr = root;
+            for (var i = 0; i < pathNames.length; i++) {
+                try {
+                    curr = curr.property(pathNames[i]);
+                    if (!curr) return null;
+                } catch (e) {
+                    return null;
+                }
+            }
+            return curr;
+        },
+        setExpression: function (prop, expr) {
+            if (!prop) return false;
+            try {
+                prop.expression = expr;
+                return true;
+            } catch (e) {
+                return false;
+            }
+        },
         setValue: function (prop, val) {
             if (!prop) return;
             try { prop.setValue(val); } catch (e) {}
@@ -1031,9 +1053,44 @@
             SafeProp.setValue(pointProp, [footageW / 2, footageH / 2]);
 
             // Connect Matte Roundness & Shadow Opacities to Controller Sliders
-            rectRoundProp.expression = "var ctrl = thisComp.layer('" + controller.name + "');\nctrl.effect('Corner Radius')('Slider');";
-            s1Opac.expression = "var ctrl = thisComp.layer('" + controller.name + "');\nctrl.effect('Shadow Intensity')('Slider') * 0.70;";
-            s2Opac.expression = "var ctrl = thisComp.layer('" + controller.name + "');\nctrl.effect('Shadow Intensity')('Slider') * 0.40;";
+            // Defensive Fresh Querying to Prevent Stale C++ Pointers / 'Object is invalid'
+            try {
+                var freshRound = SafeProp.findFresh(matteLayer, [
+                    "ADBE Root Vectors Group",
+                    "Window Bounds",
+                    "ADBE Vectors Group",
+                    "ADBE Vector Shape - Rect",
+                    "ADBE Vector Rect Roundness"
+                ]);
+                if (!freshRound) {
+                    var mRectFresh = SafeProp.findFresh(matteLayer, [
+                        "ADBE Root Vectors Group",
+                        "Window Bounds",
+                        "ADBE Vectors Group",
+                        "ADBE Vector Shape - Rect"
+                    ]);
+                    if (mRectFresh) freshRound = SafeProp.find(mRectFresh, ["ADBE Vector Rect Roundness", "Roundness"], 3);
+                }
+                if (freshRound) {
+                    SafeProp.setExpression(freshRound, "var ctrl = thisComp.layer('" + controller.name + "');\nctrl.effect('Corner Radius')('Slider');");
+                }
+            } catch (eRound) {}
+
+            try {
+                var vFxFresh = videoLayer.property("ADBE Effect Parade");
+                if (vFxFresh) {
+                    var sh1Fresh = vFxFresh.property("Window Drop Shadow (Ambient)");
+                    if (sh1Fresh) {
+                        var s1Prop = SafeProp.find(sh1Fresh, ["ADBE Drop Shadow-0002", "Opacity"], 2);
+                        if (s1Prop) SafeProp.setExpression(s1Prop, "var ctrl = thisComp.layer('" + controller.name + "');\nctrl.effect('Shadow Intensity')('Slider') * 0.70;");
+                    }
+                    var sh2Fresh = vFxFresh.property("Window Drop Shadow (Contact)");
+                    if (sh2Fresh) {
+                        var s2Prop = SafeProp.find(sh2Fresh, ["ADBE Drop Shadow-0002", "Opacity"], 2);
+                        if (s2Prop) SafeProp.setExpression(s2Prop, "var ctrl = thisComp.layer('" + controller.name + "');\nctrl.effect('Shadow Intensity')('Slider') * 0.40;");
+                    }
+                }
+            } catch (eShad) {}
 
             // 9. Recordly Damped Harmonic Oscillator Simulation
             var springConfig = getCursorSpringConfig(options.cursorSmoothing, {
@@ -1172,27 +1229,39 @@
                 SafeProp.setValue(pointProp, [footageW / 2, footageH / 2]);
             }
 
-            // 11. Camera Transformation Expressions
-            videoLayer.transform.anchorPoint.expression =
-                "var ctrl = thisComp.layer('" + controller.name + "');\n" +
-                "ctrl.effect('Camera Focus')('Point');";
+            // 11. Camera Transformation Expressions (Defensively Applied)
+            try {
+                videoLayer.transform.anchorPoint.expression =
+                    "var ctrl = thisComp.layer('" + controller.name + "');\n" +
+                    "ctrl.effect('Camera Focus')('Point');";
+            } catch (eAP) {}
 
-            videoLayer.transform.position.expression = "[thisComp.width / 2, thisComp.height / 2];";
+            try {
+                videoLayer.transform.position.expression = "[thisComp.width / 2, thisComp.height / 2];";
+            } catch (ePos) {}
 
-            videoLayer.transform.scale.expression =
-                "var ctrl = thisComp.layer('" + controller.name + "');\n" +
-                "var z = ctrl.effect('Zoom Scale')('Slider');\n" +
-                "var m = ctrl.effect('Canvas Margin')('Slider');\n" +
-                "var base = 100.0 * (1.0 - Math.min(0.4, m / 100.0));\n" +
-                "var s = base * (z / 100.0);\n" +
-                "[s, s];";
+            try {
+                videoLayer.transform.scale.expression =
+                    "var ctrl = thisComp.layer('" + controller.name + "');\n" +
+                    "var z = ctrl.effect('Zoom Scale')('Slider');\n" +
+                    "var m = ctrl.effect('Canvas Margin')('Slider');\n" +
+                    "var base = 100.0 * (1.0 - Math.min(0.4, m / 100.0));\n" +
+                    "var s = base * (z / 100.0);\n" +
+                    "[s, s];";
+            } catch (eScl) {}
 
-            matteLayer.transform.anchorPoint.expression =
-                "var vid = thisComp.layer('" + videoLayer.name + "');\nvid.transform.anchorPoint;";
-            matteLayer.transform.position.expression =
-                "var vid = thisComp.layer('" + videoLayer.name + "');\nvid.transform.position;";
-            matteLayer.transform.scale.expression =
-                "var vid = thisComp.layer('" + videoLayer.name + "');\nvid.transform.scale;";
+            try {
+                matteLayer.transform.anchorPoint.expression =
+                    "var vid = thisComp.layer('" + videoLayer.name + "');\nvid.transform.anchorPoint;";
+            } catch (eMAP) {}
+            try {
+                matteLayer.transform.position.expression =
+                    "var vid = thisComp.layer('" + videoLayer.name + "');\nvid.transform.position;";
+            } catch (eMPos) {}
+            try {
+                matteLayer.transform.scale.expression =
+                    "var vid = thisComp.layer('" + videoLayer.name + "');\nvid.transform.scale;";
+            } catch (eMScl) {}
 
             // 12. Layer 2: Generate Calibrated Cursor Layer with Hotspot Locking
             var styleDef = CURSOR_MANIFEST[options.cursorStyle] || CURSOR_MANIFEST.tahoe;
@@ -1308,20 +1377,24 @@
                 } catch (e) {}
             }
 
-            cursorLayer.transform.position.expression =
-                "var vid = thisComp.layer('" + videoLayer.name + "');\n" +
-                "vid.toComp(value);";
+            try {
+                cursorLayer.transform.position.expression =
+                    "var vid = thisComp.layer('" + videoLayer.name + "');\n" +
+                    "vid.toComp(value);";
+            } catch (eCPos) {}
 
-            cursorLayer.transform.rotation.expression =
-                "var v = transform.position.velocity;\n" +
-                "var spd = Math.sqrt(v[0] * v[0] + v[1] * v[1]);\n" +
-                "if (spd > 0.5) {\n" +
-                "    var ctrl = thisComp.layer('" + controller.name + "');\n" +
-                "    var sway = ctrl.effect('Cursor Sway')('Slider');\n" +
-                "    var speedFactor = Math.min(1.0, spd / 1400.0);\n" +
-                "    var dirBias = (v[0] + v[1] * 0.65) / spd;\n" +
-                "    clamp(dirBias * speedFactor * 10.0 * sway * 3.0, -35, 35);\n" +
-                "} else { 0; }";
+            try {
+                cursorLayer.transform.rotation.expression =
+                    "var v = transform.position.velocity;\n" +
+                    "var spd = Math.sqrt(v[0] * v[0] + v[1] * v[1]);\n" +
+                    "if (spd > 0.5) {\n" +
+                    "    var ctrl = thisComp.layer('" + controller.name + "');\n" +
+                    "    var sway = ctrl.effect('Cursor Sway')('Slider');\n" +
+                    "    var speedFactor = Math.min(1.0, spd / 1400.0);\n" +
+                    "    var dirBias = (v[0] + v[1] * 0.65) / spd;\n" +
+                    "    clamp(dirBias * speedFactor * 10.0 * sway * 3.0, -35, 35);\n" +
+                    "} else { 0; }";
+            } catch (eCRot) {}
 
             if (options.createClickBounce) {
                 var cursorScaleProp = cursorLayer.transform.scale;
@@ -1356,12 +1429,16 @@
                 SafeProp.setValue(rippleLayer.transform.anchorPoint, [0, 0]);
                 SafeProp.setValue(rippleLayer.transform.position, [0, 0]);
 
-                rippleLayer.transform.position.expression =
-                    "var vid = thisComp.layer('" + videoLayer.name + "');\n" +
-                    "vid.toComp([0, 0]);";
-                rippleLayer.transform.scale.expression =
-                    "var vid = thisComp.layer('" + videoLayer.name + "');\n" +
-                    "vid.transform.scale;";
+                try {
+                    rippleLayer.transform.position.expression =
+                        "var vid = thisComp.layer('" + videoLayer.name + "');\n" +
+                        "vid.toComp([0, 0]);";
+                } catch (eRPos) {}
+                try {
+                    rippleLayer.transform.scale.expression =
+                        "var vid = thisComp.layer('" + videoLayer.name + "');\n" +
+                        "vid.transform.scale;";
+                } catch (eRScl) {}
 
                 var rippleRoot = rippleLayer.property("ADBE Root Vectors Group");
                 var rgbColor = hexToRgb(options.clickEffectColor || "#2563EB");
@@ -1560,7 +1637,7 @@
         statusTxt.alignment = ["right", "center"];
 
         // =====================================================================
-        // SCROLLABLE CONTAINER (Responsive Viewport with Ultra-Slim Scrollbar)
+        // SCROLLABLE CONTAINER (Responsive Viewport with Arrow Buttons & Scrollbar)
         // =====================================================================
         var outerScrollBox = win.add("group");
         outerScrollBox.orientation = "row";
@@ -1572,7 +1649,7 @@
         var scrollViewport = outerScrollBox.add("group");
         scrollViewport.orientation = "column";
         scrollViewport.alignment = ["fill", "fill"];
-        scrollViewport.alignChildren = ["fill", "top"];
+        scrollViewport.alignChildren = ["fill", undefined]; // Crucial: Do not clamp child Y!
         scrollViewport.spacing = 0;
         scrollViewport.margins = 0;
 
@@ -1583,10 +1660,27 @@
         contentGroup.spacing = 6;
         contentGroup.margins = [0, 0, 4, 0];
 
-        var scrollBar = outerScrollBox.add("scrollbar", [0, 0, 8, 100], 0, 0, 100);
-        scrollBar.alignment = ["right", "fill"];
-        scrollBar.preferredSize.width = 8;
-        scrollBar.visible = false;
+        // Dedicated Scroll Bar Column with Mini Arrow Buttons
+        var scrollCol = outerScrollBox.add("group");
+        scrollCol.orientation = "column";
+        scrollCol.alignment = ["right", "fill"];
+        scrollCol.alignChildren = ["center", "fill"];
+        scrollCol.spacing = 2;
+        scrollCol.margins = [0, 0, 0, 0];
+        scrollCol.preferredSize.width = 16;
+
+        var btnScrollUp = scrollCol.add("button", undefined, "▲");
+        btnScrollUp.preferredSize = [16, 16];
+        btnScrollUp.helpTip = "Scroll panel upwards";
+
+        var scrollBar = scrollCol.add("scrollbar", undefined, 0, 0, 100);
+        scrollBar.alignment = ["fill", "fill"];
+        scrollBar.preferredSize.width = 16;
+        scrollBar.visible = true;
+
+        var btnScrollDown = scrollCol.add("button", undefined, "▼");
+        btnScrollDown.preferredSize = [16, 16];
+        btnScrollDown.helpTip = "Scroll panel downwards";
 
         // --- SECTION 1: Source Media & Telemetry ---
         var secMedia = contentGroup.add("panel", undefined, "1. Source Media & Telemetry Ingest");
@@ -1644,34 +1738,114 @@
         secCursor.spacing = 5;
         secCursor.margins = 8;
 
-        // Visual Mouse Cursor Preview Card
+        // Visual Mouse Cursor Preview Card (Dual-Engine Canvas)
         var cursorPreviewRow = secCursor.add("group");
         cursorPreviewRow.orientation = "row";
         cursorPreviewRow.alignChildren = ["left", "center"];
         cursorPreviewRow.spacing = 10;
         cursorPreviewRow.margins = [0, 2, 0, 4];
 
-        var cursorCard = cursorPreviewRow.add("group");
-        cursorCard.preferredSize = [54, 54];
-        cursorCard.maximumSize = [54, 54];
-        cursorCard.orientation = "stack";
-        cursorCard.alignChildren = ["center", "center"];
+        // Procedural Vector Cursor Drawing Engine
+        function drawVectorCursor(g, styleKey, boxW, boxH) {
+            var ox = Math.round(boxW * 0.28);
+            var oy = Math.round(boxH * 0.18);
+            var curPen = g.newPen(g.PenType.SOLID_COLOR, [0.08, 0.08, 0.10, 1.0], 1.5);
+            var fillBrush = g.newBrush(g.BrushType.SOLID_COLOR, [0.98, 0.98, 0.99, 1.0]);
 
-        cursorCard.onDraw = function () {
+            if (styleKey === "windows11") {
+                g.newPath();
+                g.moveTo(ox, oy);
+                g.lineTo(ox, oy + 24);
+                g.lineTo(ox + 6, oy + 19);
+                g.lineTo(ox + 11, oy + 29);
+                g.lineTo(ox + 15, oy + 27);
+                g.lineTo(ox + 10, oy + 17);
+                g.lineTo(ox + 18, oy + 17);
+                g.closePath();
+                g.fillPath(fillBrush);
+                g.strokePath(curPen);
+            } else if (styleKey === "custom") {
+                g.newPath();
+                g.moveTo(ox + 2, oy);
+                g.lineTo(ox + 2, oy + 22);
+                g.lineTo(ox + 7, oy + 16);
+                g.lineTo(ox + 16, oy + 16);
+                g.closePath();
+                var figmaB = g.newBrush(g.BrushType.SOLID_COLOR, [0.10, 0.10, 0.12, 1.0]);
+                g.fillPath(figmaB);
+                var figmaP = g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 1.0], 1.2);
+                g.strokePath(figmaP);
+            } else {
+                // macOS Tahoe / Classic
+                g.newPath();
+                g.moveTo(ox, oy);
+                g.lineTo(ox, oy + 24);
+                g.lineTo(ox + 6, oy + 18);
+                g.lineTo(ox + 12, oy + 28);
+                g.lineTo(ox + 15, oy + 26);
+                g.lineTo(ox + 9, oy + 16);
+                g.lineTo(ox + 17, oy + 16);
+                g.closePath();
+                g.fillPath(fillBrush);
+                g.strokePath(curPen);
+            }
+        }
+
+        function drawHotspotPip(g, anchorX, anchorY, boxW, boxH) {
+            var ox = Math.round(boxW * 0.28);
+            var oy = Math.round(boxH * 0.18);
+            var px = Math.round(ox + anchorX * 26);
+            var py = Math.round(oy + anchorY * 26);
+            var targetBrush = g.newBrush(g.BrushType.SOLID_COLOR, [0.15, 0.75, 1.0, 1.0]);
+            var targetPen = g.newPen(g.PenType.SOLID_COLOR, [0.05, 0.15, 0.35, 1.0], 1);
+            g.rectPath(px - 2, py - 2, 5, 5);
+            g.fillPath(targetBrush);
+            g.rectPath(px - 2, py - 2, 5, 5);
+            g.strokePath(targetPen);
+        }
+
+        var cursorCanvas = cursorPreviewRow.add("customControl", [0, 0, 56, 56]);
+        cursorCanvas.size = [56, 56];
+        cursorCanvas.preferredSize = [56, 56];
+        cursorCanvas.maximumSize = [56, 56];
+        cursorCanvas.currentStyleKey = "tahoe";
+        cursorCanvas.previewImage = null;
+
+        var initPrevF = getCursorPreviewFile("tahoe");
+        if (initPrevF && initPrevF.exists) {
+            try { cursorCanvas.previewImage = ScriptUI.newImage(initPrevF); } catch (e) {}
+        }
+
+        cursorCanvas.onDraw = function () {
             var g = this.graphics;
-            var w = this.size[0];
-            var h = this.size[1];
-            var cardB = g.newBrush(g.BrushType.SOLID_COLOR, [0.18, 0.18, 0.20, 1.0]);
+            var w = (this.size && this.size[0]) || 56;
+            var h = (this.size && this.size[1]) || 56;
+            if (w <= 0 || h <= 0) { w = 56; h = 56; }
+
+            var cardB = g.newBrush(g.BrushType.SOLID_COLOR, [0.16, 0.16, 0.18, 1.0]);
             g.rectPath(0, 0, w, h);
             g.fillPath(cardB);
-            var borderP = g.newPen(g.PenType.SOLID_COLOR, [0.32, 0.32, 0.36, 1.0], 1);
+            var borderP = g.newPen(g.PenType.SOLID_COLOR, [0.30, 0.30, 0.35, 1.0], 1);
             g.rectPath(0, 0, w, h);
             g.strokePath(borderP);
-        };
 
-        var initialPreviewFile = getCursorPreviewFile("tahoe");
-        var cursorPreviewImg = cursorCard.add("image", [0, 0, 48, 48], initialPreviewFile);
-        cursorPreviewImg.alignment = ["center", "center"];
+            var drewImg = false;
+            if (this.previewImage) {
+                try {
+                    g.drawImage(this.previewImage, 6, 6, 44, 44);
+                    drewImg = true;
+                } catch (e) {}
+            }
+
+            var sDef = CURSOR_MANIFEST[this.currentStyleKey] || CURSOR_MANIFEST.tahoe;
+            var aData = (sDef.cursors && sDef.cursors.arrow) || { anchorX: 0.14, anchorY: 0.06 };
+
+            if (!drewImg) {
+                drawVectorCursor(g, this.currentStyleKey, w, h);
+            }
+
+            drawHotspotPip(g, aData.anchorX, aData.anchorY, w, h);
+        };
 
         var cursorMetaGrp = cursorPreviewRow.add("group");
         cursorMetaGrp.orientation = "column";
@@ -1700,21 +1874,23 @@
 
         function updateCursorPreview(styleKey) {
             var sDef = CURSOR_MANIFEST[styleKey] || CURSOR_MANIFEST.tahoe;
+            cursorCanvas.currentStyleKey = styleKey;
             cursorTitleTxt.text = sDef.label;
 
             var prevF = getCursorPreviewFile(styleKey);
+            cursorCanvas.previewImage = null;
             if (prevF && prevF.exists) {
-                try {
-                    cursorPreviewImg.image = prevF;
-                    cursorPreviewImg.visible = true;
-                } catch (e) {}
-            } else {
-                cursorPreviewImg.visible = false;
+                try { cursorCanvas.previewImage = ScriptUI.newImage(prevF); } catch (e) {}
             }
 
             var aData = (sDef.cursors && sDef.cursors.arrow) || { anchorX: 0, anchorY: 0 };
             cursorHotspotTxt.text = "Hotspot: [" + Math.round(aData.anchorX * 100) + "%, " + Math.round(aData.anchorY * 100) + "%]";
             cursorResTxt.text = sDef.folder ? "512px Retina Asset" : "Procedural Vector Shape";
+
+            try {
+                cursorCanvas.hide();
+                cursorCanvas.show();
+            } catch (e) {}
         }
 
         var styleKeys = ["tahoe", "macos", "windows11", "custom", "procedural"];
@@ -1844,9 +2020,10 @@
         bgPreviewRow.spacing = 10;
         bgPreviewRow.margins = [0, 2, 0, 4];
 
-        var bgCard = bgPreviewRow.add("group");
-        bgCard.preferredSize = [76, 38];
-        bgCard.maximumSize = [76, 38];
+        var bgCard = bgPreviewRow.add("customControl", [0, 0, 84, 44]);
+        bgCard.size = [84, 44];
+        bgCard.preferredSize = [84, 44];
+        bgCard.maximumSize = [84, 44];
 
         var bgKeys = ["tahoe-dawn", "dark-studio", "midnight-deep", "sequoia-azure", "solid-charcoal", "none"];
         var savedBgIdx = parseInt(getPref("bgPresetIdx", "0"), 10);
@@ -1854,23 +2031,26 @@
 
         bgCard.onDraw = function () {
             var g = this.graphics;
-            var w = this.size[0];
-            var h = this.size[1];
-            if (w <= 0 || h <= 0) return;
+            var w = (this.size && this.size[0]) || 84;
+            var h = (this.size && this.size[1]) || 44;
+            if (w <= 0 || h <= 0) { w = 84; h = 44; }
 
             if (currentBgKey === "none") {
                 var trB = g.newBrush(g.BrushType.SOLID_COLOR, [0.12, 0.12, 0.14, 1.0]);
                 g.rectPath(0, 0, w, h);
                 g.fillPath(trB);
-                var tPen = g.newPen(g.PenType.SOLID_COLOR, [0.55, 0.55, 0.60, 1.0], 1);
-                g.drawString("Transparent", tPen, 6, 13);
+                var tPen = g.newPen(g.PenType.SOLID_COLOR, [0.60, 0.60, 0.65, 1.0], 1);
+                g.drawString("Transparent", tPen, 8, 16);
+                var bPen = g.newPen(g.PenType.SOLID_COLOR, [0.35, 0.35, 0.40, 1.0], 1);
+                g.rectPath(0, 0, w, h);
+                g.strokePath(bPen);
                 return;
             }
 
             var bData = BACKGROUND_PRESETS[currentBgKey] || BACKGROUND_PRESETS["tahoe-dawn"];
             var sCol = bData.start;
             var eCol = bData.end;
-            var steps = 24;
+            var steps = 28;
             var stripW = w / steps;
 
             for (var i = 0; i < steps; i++) {
@@ -1879,11 +2059,11 @@
                 var gr = sCol[1] + (eCol[1] - sCol[1]) * t;
                 var b = sCol[2] + (eCol[2] - sCol[2]) * t;
                 var stripB = g.newBrush(g.BrushType.SOLID_COLOR, [r, gr, b, 1.0]);
-                g.rectPath(i * stripW, 0, stripW + 1, h);
+                g.rectPath(Math.floor(i * stripW), 0, Math.ceil(stripW) + 1, h);
                 g.fillPath(stripB);
             }
 
-            var borderPen = g.newPen(g.PenType.SOLID_COLOR, [0.35, 0.35, 0.40, 1.0], 1);
+            var borderPen = g.newPen(g.PenType.SOLID_COLOR, [0.38, 0.38, 0.44, 1.0], 1);
             g.rectPath(0, 0, w, h);
             g.strokePath(borderPen);
         };
@@ -1917,7 +2097,10 @@
             var bData = BACKGROUND_PRESETS[key] || BACKGROUND_PRESETS["tahoe-dawn"];
             bgTitleTxt.text = bData.label.split(" (")[0];
             bgTypeTxt.text = key === "none" ? "Edge-to-Edge Composition" : (bData.isRadial ? "Radial Gradient Ramp" : "Linear Gradient Ramp");
-            try { bgCard.notify("onDraw"); } catch (e) {}
+            try {
+                bgCard.hide();
+                bgCard.show();
+            } catch (e) {}
         }
 
         bgDropdown.onChange = function () {
@@ -2077,40 +2260,52 @@
             buildTraceMotionRig(selectedVideoFile, selectedJsonFile, opts);
         };
 
-        // Scrollbar Layout and Mousewheel Controller
+        function doScroll(newVal) {
+            var maxV = scrollBar.maxvalue || 0;
+            var target = Math.max(0, Math.min(maxV, newVal));
+            scrollBar.value = target;
+            contentGroup.location = [contentGroup.location[0], -Math.round(target)];
+        }
+
+        scrollBar.onChanging = function () { doScroll(scrollBar.value); };
+        scrollBar.onChange = function () { doScroll(scrollBar.value); };
+        btnScrollUp.onClick = function () { doScroll(scrollBar.value - 75); };
+        btnScrollDown.onClick = function () { doScroll(scrollBar.value + 75); };
+
+        // Scrollbar Layout and Viewport Bounds Evaluator
         function updateScroll() {
-            if (!win.visible) return;
             try {
                 win.layout.layout(true);
-                var viewH = scrollViewport.size.height;
-                var contH = contentGroup.size.height;
-                if (contH > viewH && viewH > 60) {
-                    scrollBar.visible = true;
+                var viewH = (scrollViewport.size && (scrollViewport.size[1] || scrollViewport.size.height)) || 0;
+                var contH = (contentGroup.size && (contentGroup.size[1] || contentGroup.size.height)) || 0;
+                if (viewH <= 0) {
+                    var winH = (win.size && (win.size[1] || win.size.height)) || 540;
+                    viewH = Math.max(100, winH - 120);
+                }
+                if (contH > viewH) {
+                    scrollBar.enabled = true;
                     scrollBar.maxvalue = contH - viewH;
-                    scrollBar.jumpdelta = Math.min(80, Math.floor(viewH * 0.35));
+                    scrollBar.jumpdelta = Math.max(30, Math.floor(viewH * 0.35));
+                    btnScrollUp.enabled = true;
+                    btnScrollDown.enabled = true;
                 } else {
-                    scrollBar.visible = false;
-                    contentGroup.location.y = 0;
+                    scrollBar.enabled = false;
+                    scrollBar.maxvalue = 0;
                     scrollBar.value = 0;
+                    contentGroup.location = [contentGroup.location[0], 0];
+                    btnScrollUp.enabled = false;
+                    btnScrollDown.enabled = false;
                 }
             } catch (e) {}
         }
 
         win.onResizing = win.onResize = updateScroll;
 
-        scrollBar.onChanging = function () {
-            contentGroup.location.y = -Math.round(scrollBar.value);
-        };
-        scrollBar.onChange = function () {
-            contentGroup.location.y = -Math.round(scrollBar.value);
-        };
-
         try {
             win.addEventListener("wheel", function (e) {
-                if (scrollBar.visible) {
-                    var step = (e.deltaY !== undefined) ? e.deltaY : 25;
-                    scrollBar.value = Math.max(0, Math.min(scrollBar.maxvalue, scrollBar.value + step));
-                    contentGroup.location.y = -Math.round(scrollBar.value);
+                if (scrollBar.enabled) {
+                    var step = (e.deltaY !== undefined) ? e.deltaY : 35;
+                    doScroll(scrollBar.value + step);
                 }
             });
         } catch (e) {}
@@ -2121,6 +2316,13 @@
         } else {
             win.layout.layout(true);
         }
+
+        // Initialize dynamic previews & scroll bounds upon panel launch
+        updateScroll();
+        try {
+            updateCursorPreview(styleKeys[cursorDropdown.selection ? cursorDropdown.selection.index : 0]);
+            updateBgPreview(currentBgKey);
+        } catch (initErr) {}
 
         return win;
     }
