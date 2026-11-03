@@ -1,0 +1,1369 @@
+{
+  "generatedAt": "2026-11-03T08:01:08.702Z",
+  "sets": {
+    "tahoe": {
+      "id": "tahoe",
+      "sizeMultiplier": 1,
+      "cursors": {
+        "beachball-1__50-46": {
+          "svgFile": "beachball-1__50-46.svg",
+          "pngFile": "beachball-1__50-46.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 618,
+          "anchorX": 0.5,
+          "anchorY": 0.46
+        },
+        "busybutclickable-1__23-0": {
+          "svgFile": "busybutclickable-1__23-0.svg",
+          "pngFile": "busybutclickable-1__23-0.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "cell-1__50-50": {
+          "svgFile": "cell-1__50-50.svg",
+          "pngFile": "cell-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "closed-hand": {
+          "svgFile": "closedhand-1__50-46.svg",
+          "pngFile": "closedhand-1__50-46.png",
+          "width": 542,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 584,
+          "anchorX": 0.5,
+          "anchorY": 0.46
+        },
+        "closedhand-1__50-46": {
+          "svgFile": "closedhand-1__50-46.svg",
+          "pngFile": "closedhand-1__50-46.png",
+          "width": 542,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 584,
+          "anchorX": 0.5,
+          "anchorY": 0.46
+        },
+        "contextualmenu-1__12-5": {
+          "svgFile": "contextualmenu-1__12-5.svg",
+          "pngFile": "contextualmenu-1__12-5.png",
+          "width": 328,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 966,
+          "anchorX": 0.12,
+          "anchorY": 0.05
+        },
+        "copy-1__23-0": {
+          "svgFile": "copy-1__23-0.svg",
+          "pngFile": "copy-1__23-0.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "cross-1__50-46": {
+          "svgFile": "cross-1__50-46.svg",
+          "pngFile": "cross-1__50-46.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 618,
+          "anchorX": 0.5,
+          "anchorY": 0.46
+        },
+        "crosshair": {
+          "svgFile": "crosshair-1__50-50.svg",
+          "pngFile": "crosshair-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "crosshair-1__50-50": {
+          "svgFile": "crosshair-1__50-50.svg",
+          "pngFile": "crosshair-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "help-1__50-50": {
+          "svgFile": "help-1__50-50.svg",
+          "pngFile": "help-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "text": {
+          "svgFile": "ibeam-1__50-44.svg",
+          "pngFile": "ibeam-1__50-44.png",
+          "width": 234,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 1350,
+          "anchorX": 0.5,
+          "anchorY": 0.44
+        },
+        "ibeam-1__50-44": {
+          "svgFile": "ibeam-1__50-44.svg",
+          "pngFile": "ibeam-1__50-44.png",
+          "width": 234,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 1350,
+          "anchorX": 0.5,
+          "anchorY": 0.44
+        },
+        "ibeamstroke-1__50-44": {
+          "svgFile": "ibeamstroke-1__50-44.svg",
+          "pngFile": "ibeamstroke-1__50-44.png",
+          "width": 234,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 1350,
+          "anchorX": 0.5,
+          "anchorY": 0.44
+        },
+        "ibeamvertical-1__50-50": {
+          "svgFile": "ibeamvertical-1__50-50.svg",
+          "pngFile": "ibeamvertical-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1000,
+          "naturalHeight": 1000,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "ibeamverticalstroke-1__50-50": {
+          "svgFile": "ibeamverticalstroke-1__50-50.svg",
+          "pngFile": "ibeamverticalstroke-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1000,
+          "naturalHeight": 1000,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "makealias-1__63-29": {
+          "svgFile": "makealias-1__63-29.svg",
+          "pngFile": "makealias-1__63-29.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.63,
+          "anchorY": 0.29
+        },
+        "move-1__50-46": {
+          "svgFile": "move-1__50-46.svg",
+          "pngFile": "move-1__50-46.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 618,
+          "anchorX": 0.5,
+          "anchorY": 0.46
+        },
+        "not-allowed": {
+          "svgFile": "notallowed-1__23-0.svg",
+          "pngFile": "notallowed-1__23-0.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "notallowed-1__23-0": {
+          "svgFile": "notallowed-1__23-0.svg",
+          "pngFile": "notallowed-1__23-0.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "open-hand": {
+          "svgFile": "openhand-1__55-57.svg",
+          "pngFile": "openhand-1__55-57.png",
+          "width": 461,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 686,
+          "anchorX": 0.55,
+          "anchorY": 0.57
+        },
+        "openhand-1__55-57": {
+          "svgFile": "openhand-1__55-57.svg",
+          "pngFile": "openhand-1__55-57.png",
+          "width": 461,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 686,
+          "anchorX": 0.55,
+          "anchorY": 0.57
+        },
+        "arrow": {
+          "svgFile": "pointer-1__14-6.svg",
+          "pngFile": "pointer-1__14-6.png",
+          "width": 330,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 958,
+          "anchorX": 0.14,
+          "anchorY": 0.06
+        },
+        "pointer-1__14-6": {
+          "svgFile": "pointer-1__14-6.svg",
+          "pngFile": "pointer-1__14-6.png",
+          "width": 330,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 958,
+          "anchorX": 0.14,
+          "anchorY": 0.06
+        },
+        "pointer": {
+          "svgFile": "pointinghand-1__40-10.svg",
+          "pngFile": "pointinghand-1__40-10.png",
+          "width": 413,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 767,
+          "anchorX": 0.4,
+          "anchorY": 0.1
+        },
+        "pointinghand-1__40-10": {
+          "svgFile": "pointinghand-1__40-10.svg",
+          "pngFile": "pointinghand-1__40-10.png",
+          "width": 413,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 767,
+          "anchorX": 0.4,
+          "anchorY": 0.1
+        },
+        "proof-1__23-0": {
+          "svgFile": "proof-1__23-0.svg",
+          "pngFile": "proof-1__23-0.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "resizedown-1__50-36": {
+          "svgFile": "resizedown-1__50-36.svg",
+          "pngFile": "resizedown-1__50-36.png",
+          "width": 527,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 600,
+          "anchorX": 0.5,
+          "anchorY": 0.36
+        },
+        "resizeeast-1__50-50": {
+          "svgFile": "resizeeast-1__50-50.svg",
+          "pngFile": "resizeeast-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1000,
+          "naturalHeight": 1000,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resize-ew": {
+          "svgFile": "resizeeastwest-1__50-50.svg",
+          "pngFile": "resizeeastwest-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1000,
+          "naturalHeight": 1000,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizeeastwest-1__50-50": {
+          "svgFile": "resizeeastwest-1__50-50.svg",
+          "pngFile": "resizeeastwest-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1000,
+          "naturalHeight": 1000,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizeleft-1__62-46": {
+          "svgFile": "resizeleft-1__62-46.svg",
+          "pngFile": "resizeleft-1__62-46.png",
+          "width": 497,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 637,
+          "anchorX": 0.62,
+          "anchorY": 0.46
+        },
+        "resizeleftright-1__50-43": {
+          "svgFile": "resizeleftright-1__50-43.svg",
+          "pngFile": "resizeleftright-1__50-43.png",
+          "width": 757,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 418,
+          "anchorX": 0.5,
+          "anchorY": 0.43
+        },
+        "resizenorth-1__50-49": {
+          "svgFile": "resizenorth-1__50-49.svg",
+          "pngFile": "resizenorth-1__50-49.png",
+          "width": 230,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 1373,
+          "anchorX": 0.5,
+          "anchorY": 0.49
+        },
+        "resizenortheast-1__50-49": {
+          "svgFile": "resizenortheast-1__50-49.svg",
+          "pngFile": "resizenortheast-1__50-49.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1258,
+          "naturalHeight": 1258,
+          "anchorX": 0.5,
+          "anchorY": 0.49
+        },
+        "resizenortheastsouthwest-1__50-46": {
+          "svgFile": "resizenortheastsouthwest-1__50-46.svg",
+          "pngFile": "resizenortheastsouthwest-1__50-46.png",
+          "width": 513,
+          "height": 512,
+          "naturalWidth": 619,
+          "naturalHeight": 618,
+          "anchorX": 0.5,
+          "anchorY": 0.46
+        },
+        "resize-ns": {
+          "svgFile": "resizenorthsouth-1__50-49.svg",
+          "pngFile": "resizenorthsouth-1__50-49.png",
+          "width": 231,
+          "height": 512,
+          "naturalWidth": 619,
+          "naturalHeight": 1372,
+          "anchorX": 0.5,
+          "anchorY": 0.49
+        },
+        "resizenorthsouth-1__50-49": {
+          "svgFile": "resizenorthsouth-1__50-49.svg",
+          "pngFile": "resizenorthsouth-1__50-49.png",
+          "width": 231,
+          "height": 512,
+          "naturalWidth": 619,
+          "naturalHeight": 1372,
+          "anchorX": 0.5,
+          "anchorY": 0.49
+        },
+        "resizenorthwest-1__50-49": {
+          "svgFile": "resizenorthwest-1__50-49.svg",
+          "pngFile": "resizenorthwest-1__50-49.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1258,
+          "naturalHeight": 1258,
+          "anchorX": 0.5,
+          "anchorY": 0.49
+        },
+        "resizenorthwestsoutheast-1__51-46": {
+          "svgFile": "resizenorthwestsoutheast-1__51-46.svg",
+          "pngFile": "resizenorthwestsoutheast-1__51-46.png",
+          "width": 513,
+          "height": 512,
+          "naturalWidth": 619,
+          "naturalHeight": 618,
+          "anchorX": 0.51,
+          "anchorY": 0.46
+        },
+        "resizeright-1__38-45": {
+          "svgFile": "resizeright-1__38-45.svg",
+          "pngFile": "resizeright-1__38-45.png",
+          "width": 497,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 637,
+          "anchorX": 0.38,
+          "anchorY": 0.45
+        },
+        "resizesouth-1__50-49": {
+          "svgFile": "resizesouth-1__50-49.svg",
+          "pngFile": "resizesouth-1__50-49.png",
+          "width": 230,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 1373,
+          "anchorX": 0.5,
+          "anchorY": 0.49
+        },
+        "resizesoutheast-1__50-49": {
+          "svgFile": "resizesoutheast-1__50-49.svg",
+          "pngFile": "resizesoutheast-1__50-49.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1258,
+          "naturalHeight": 1258,
+          "anchorX": 0.5,
+          "anchorY": 0.49
+        },
+        "resizesouthwest-1__50-49": {
+          "svgFile": "resizesouthwest-1__50-49.svg",
+          "pngFile": "resizesouthwest-1__50-49.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1258,
+          "naturalHeight": 1258,
+          "anchorX": 0.5,
+          "anchorY": 0.49
+        },
+        "resizeup-1__50-57": {
+          "svgFile": "resizeup-1__50-57.svg",
+          "pngFile": "resizeup-1__50-57.png",
+          "width": 527,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 600,
+          "anchorX": 0.5,
+          "anchorY": 0.57
+        },
+        "resizeupdown-1__51-48": {
+          "svgFile": "resizeupdown-1__51-48.svg",
+          "pngFile": "resizeupdown-1__51-48.png",
+          "width": 334,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 948,
+          "anchorX": 0.51,
+          "anchorY": 0.48
+        },
+        "resizewest-1__50-50": {
+          "svgFile": "resizewest-1__50-50.svg",
+          "pngFile": "resizewest-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 1000,
+          "naturalHeight": 1000,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "screenshotselection-1__50-50": {
+          "svgFile": "screenshotselection-1__50-50.svg",
+          "pngFile": "screenshotselection-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "screenshotwindow-1__50-50": {
+          "svgFile": "screenshotwindow-1__50-50.svg",
+          "pngFile": "screenshotwindow-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "zoomin-1__42-39": {
+          "svgFile": "zoomin-1__42-39.svg",
+          "pngFile": "zoomin-1__42-39.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 618,
+          "anchorX": 0.42,
+          "anchorY": 0.39
+        },
+        "zoomout-1__43-39": {
+          "svgFile": "zoomout-1__43-39.svg",
+          "pngFile": "zoomout-1__43-39.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 618,
+          "naturalHeight": 618,
+          "anchorX": 0.43,
+          "anchorY": 0.39
+        }
+      }
+    },
+    "macos": {
+      "id": "macos",
+      "sizeMultiplier": 1.714,
+      "cursors": {
+        "beachball-1__50-50": {
+          "svgFile": "beachball-1__50-50.svg",
+          "pngFile": "beachball-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "busybutclickable-1__23-0": {
+          "svgFile": "busybutclickable-1__23-0.svg",
+          "pngFile": "busybutclickable-1__23-0.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "cell-1__50-50": {
+          "svgFile": "cell-1__50-50.svg",
+          "pngFile": "cell-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "closed-hand": {
+          "svgFile": "closedhand-1__50-50.svg",
+          "pngFile": "closedhand-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "closedhand-1__50-50": {
+          "svgFile": "closedhand-1__50-50.svg",
+          "pngFile": "closedhand-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "contextualmenu-1__26-21": {
+          "svgFile": "contextualmenu-1__26-21.svg",
+          "pngFile": "contextualmenu-1__26-21.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.26,
+          "anchorY": 0.21
+        },
+        "copy-1__23-0": {
+          "svgFile": "copy-1__23-0.svg",
+          "pngFile": "copy-1__23-0.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "cross-1__50-50": {
+          "svgFile": "cross-1__50-50.svg",
+          "pngFile": "cross-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "crosshair": {
+          "svgFile": "crosshair-1__50-50.svg",
+          "pngFile": "crosshair-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "crosshair-1__50-50": {
+          "svgFile": "crosshair-1__50-50.svg",
+          "pngFile": "crosshair-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "help-1__50-50": {
+          "svgFile": "help-1__50-50.svg",
+          "pngFile": "help-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "ibeam-1__50-50": {
+          "svgFile": "ibeam-1__50-50.svg",
+          "pngFile": "ibeam-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "text": {
+          "svgFile": "ibeamstroke-1__50-50.svg",
+          "pngFile": "ibeamstroke-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "ibeamstroke-1__50-50": {
+          "svgFile": "ibeamstroke-1__50-50.svg",
+          "pngFile": "ibeamstroke-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "ibeamvertical-1__50-50": {
+          "svgFile": "ibeamvertical-1__50-50.svg",
+          "pngFile": "ibeamvertical-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "ibeamverticalstroke-1__50-50": {
+          "svgFile": "ibeamverticalstroke-1__50-50.svg",
+          "pngFile": "ibeamverticalstroke-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "makealias-1__63-29": {
+          "svgFile": "makealias-1__63-29.svg",
+          "pngFile": "makealias-1__63-29.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.63,
+          "anchorY": 0.29
+        },
+        "move-1__50-50": {
+          "svgFile": "move-1__50-50.svg",
+          "pngFile": "move-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "not-allowed": {
+          "svgFile": "notallowed-1__23-0.svg",
+          "pngFile": "notallowed-1__23-0.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "notallowed-1__23-0": {
+          "svgFile": "notallowed-1__23-0.svg",
+          "pngFile": "notallowed-1__23-0.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "open-hand": {
+          "svgFile": "openhand-1__50-50.svg",
+          "pngFile": "openhand-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "openhand-1__50-50": {
+          "svgFile": "openhand-1__50-50.svg",
+          "pngFile": "openhand-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "arrow": {
+          "svgFile": "pointer-1__34-24.svg",
+          "pngFile": "pointer-1__34-24.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.34,
+          "anchorY": 0.24
+        },
+        "pointer-1__34-24": {
+          "svgFile": "pointer-1__34-24.svg",
+          "pngFile": "pointer-1__34-24.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.34,
+          "anchorY": 0.24
+        },
+        "pointer": {
+          "svgFile": "pointinghand-1__39-26.svg",
+          "pngFile": "pointinghand-1__39-26.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.39,
+          "anchorY": 0.26
+        },
+        "pointinghand-1__39-26": {
+          "svgFile": "pointinghand-1__39-26.svg",
+          "pngFile": "pointinghand-1__39-26.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.39,
+          "anchorY": 0.26
+        },
+        "proof-1__23-0": {
+          "svgFile": "proof-1__23-0.svg",
+          "pngFile": "proof-1__23-0.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.23,
+          "anchorY": 0
+        },
+        "resizedown-1__50-50": {
+          "svgFile": "resizedown-1__50-50.svg",
+          "pngFile": "resizedown-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizeeast-1__50-50": {
+          "svgFile": "resizeeast-1__50-50.svg",
+          "pngFile": "resizeeast-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resize-ew": {
+          "svgFile": "resizeeastwest-1__50-50.svg",
+          "pngFile": "resizeeastwest-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizeeastwest-1__50-50": {
+          "svgFile": "resizeeastwest-1__50-50.svg",
+          "pngFile": "resizeeastwest-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizeleft-1__50-50": {
+          "svgFile": "resizeleft-1__50-50.svg",
+          "pngFile": "resizeleft-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizeleftright-1__50-50": {
+          "svgFile": "resizeleftright-1__50-50.svg",
+          "pngFile": "resizeleftright-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizenorth-1__50-50": {
+          "svgFile": "resizenorth-1__50-50.svg",
+          "pngFile": "resizenorth-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizenortheast-1__50-50": {
+          "svgFile": "resizenortheast-1__50-50.svg",
+          "pngFile": "resizenortheast-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizenortheastsouthwest-1__50-50": {
+          "svgFile": "resizenortheastsouthwest-1__50-50.svg",
+          "pngFile": "resizenortheastsouthwest-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resize-ns": {
+          "svgFile": "resizenorthsouth-1__50-50.svg",
+          "pngFile": "resizenorthsouth-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizenorthsouth-1__50-50": {
+          "svgFile": "resizenorthsouth-1__50-50.svg",
+          "pngFile": "resizenorthsouth-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizenorthwest-1__50-50": {
+          "svgFile": "resizenorthwest-1__50-50.svg",
+          "pngFile": "resizenorthwest-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizenorthwestsoutheast-1__50-50": {
+          "svgFile": "resizenorthwestsoutheast-1__50-50.svg",
+          "pngFile": "resizenorthwestsoutheast-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizeright-1__50-50": {
+          "svgFile": "resizeright-1__50-50.svg",
+          "pngFile": "resizeright-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizesouth-1__50-50": {
+          "svgFile": "resizesouth-1__50-50.svg",
+          "pngFile": "resizesouth-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizesoutheast-1__50-50": {
+          "svgFile": "resizesoutheast-1__50-50.svg",
+          "pngFile": "resizesoutheast-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizesouthwest-1__50-50": {
+          "svgFile": "resizesouthwest-1__50-50.svg",
+          "pngFile": "resizesouthwest-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizeup-1__50-50": {
+          "svgFile": "resizeup-1__50-50.svg",
+          "pngFile": "resizeup-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizeupdown-1__50-50": {
+          "svgFile": "resizeupdown-1__50-50.svg",
+          "pngFile": "resizeupdown-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resizewest-1__50-50": {
+          "svgFile": "resizewest-1__50-50.svg",
+          "pngFile": "resizewest-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "screenshotselection-1__50-50": {
+          "svgFile": "screenshotselection-1__50-50.svg",
+          "pngFile": "screenshotselection-1__50-50.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "screenshotwindow-1__50-50": {
+          "svgFile": "screenshotwindow-1__50-50.svg",
+          "pngFile": "screenshotwindow-1__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "zoomin-1__43-43": {
+          "svgFile": "zoomin-1__43-43.svg",
+          "pngFile": "zoomin-1__43-43.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 768,
+          "naturalHeight": 768,
+          "anchorX": 0.43,
+          "anchorY": 0.43
+        },
+        "zoomout-1__43-43": {
+          "svgFile": "zoomout-1__43-43.svg",
+          "pngFile": "zoomout-1__43-43.png",
+          "width": 526,
+          "height": 512,
+          "naturalWidth": 767,
+          "naturalHeight": 746,
+          "anchorX": 0.43,
+          "anchorY": 0.43
+        }
+      }
+    },
+    "windows11": {
+      "id": "windows11",
+      "sizeMultiplier": 1.6787,
+      "cursors": {
+        "arrow": {
+          "svgFile": "arrow__31-22.svg",
+          "pngFile": "arrow__31-22.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0,
+          "anchorY": 0
+        },
+        "arrow__31-22": {
+          "svgFile": "arrow__31-22.svg",
+          "pngFile": "arrow__31-22.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0,
+          "anchorY": 0
+        },
+        "not-allowed": {
+          "svgFile": "block__50-50.svg",
+          "pngFile": "block__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.25,
+          "anchorY": 0.25
+        },
+        "block__50-50": {
+          "svgFile": "block__50-50.svg",
+          "pngFile": "block__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.25,
+          "anchorY": 0.25
+        },
+        "busy__50-50": {
+          "svgFile": "busy__50-50.svg",
+          "pngFile": "busy__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "crosshair": {
+          "svgFile": "cross__50-50.svg",
+          "pngFile": "cross__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "cross__50-50": {
+          "svgFile": "cross__50-50.svg",
+          "pngFile": "cross__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "closed-hand": {
+          "svgFile": "grabbing__50-50.svg",
+          "pngFile": "grabbing__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "grabbing__50-50": {
+          "svgFile": "grabbing__50-50.svg",
+          "pngFile": "grabbing__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "open-hand": {
+          "svgFile": "grab__50-50.svg",
+          "pngFile": "grab__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "grab__50-50": {
+          "svgFile": "grab__50-50.svg",
+          "pngFile": "grab__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "help__31-22": {
+          "svgFile": "help__31-22.svg",
+          "pngFile": "help__31-22.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.31,
+          "anchorY": 0.22
+        },
+        "move__51-51": {
+          "svgFile": "move__51-51.svg",
+          "pngFile": "move__51-51.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.51,
+          "anchorY": 0.51
+        },
+        "pen__19-19": {
+          "svgFile": "pen__19-19.svg",
+          "pngFile": "pen__19-19.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.19,
+          "anchorY": 0.19
+        },
+        "person__50-50": {
+          "svgFile": "person__50-50.svg",
+          "pngFile": "person__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "pin__75-97": {
+          "svgFile": "pin__75-97.svg",
+          "pngFile": "pin__75-97.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.75,
+          "anchorY": 0.97
+        },
+        "pointer": {
+          "svgFile": "pointer__54-35.svg",
+          "pngFile": "pointer__54-35.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.1875,
+          "anchorY": 0
+        },
+        "pointer__54-35": {
+          "svgFile": "pointer__54-35.svg",
+          "pngFile": "pointer__54-35.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.1875,
+          "anchorY": 0
+        },
+        "resize-diagonal-backslash__50-50": {
+          "svgFile": "resize-diagonal-backslash__50-50.svg",
+          "pngFile": "resize-diagonal-backslash__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resize-diagonal-slash__50-50": {
+          "svgFile": "resize-diagonal-slash__50-50.svg",
+          "pngFile": "resize-diagonal-slash__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "resize-ew": {
+          "svgFile": "resize-horizontal__51-49.svg",
+          "pngFile": "resize-horizontal__51-49.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.3438,
+          "anchorY": 0.125
+        },
+        "resize-horizontal__51-49": {
+          "svgFile": "resize-horizontal__51-49.svg",
+          "pngFile": "resize-horizontal__51-49.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.3438,
+          "anchorY": 0.125
+        },
+        "resize-ns": {
+          "svgFile": "resize-vertical__48-50.svg",
+          "pngFile": "resize-vertical__48-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.125,
+          "anchorY": 0.3438
+        },
+        "resize-vertical__48-50": {
+          "svgFile": "resize-vertical__48-50.svg",
+          "pngFile": "resize-vertical__48-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.125,
+          "anchorY": 0.3438
+        },
+        "text": {
+          "svgFile": "text__50-50.svg",
+          "pngFile": "text__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "text__50-50": {
+          "svgFile": "text__50-50.svg",
+          "pngFile": "text__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "up__49-21": {
+          "svgFile": "up__49-21.svg",
+          "pngFile": "up__49-21.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.49,
+          "anchorY": 0.21
+        },
+        "wait__50-50": {
+          "svgFile": "wait__50-50.svg",
+          "pngFile": "wait__50-50.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.5,
+          "anchorY": 0.5
+        },
+        "zoom-in__44-44": {
+          "svgFile": "zoom-in__44-44.svg",
+          "pngFile": "zoom-in__44-44.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.44,
+          "anchorY": 0.44
+        },
+        "zoom-out__44-44": {
+          "svgFile": "zoom-out__44-44.svg",
+          "pngFile": "zoom-out__44-44.png",
+          "width": 512,
+          "height": 512,
+          "naturalWidth": 32,
+          "naturalHeight": 32,
+          "anchorX": 0.44,
+          "anchorY": 0.44
+        }
+      }
+    },
+    "custom": {
+      "id": "custom",
+      "sizeMultiplier": 1,
+      "cursors": {
+        "arrow": {
+          "svgFile": "minimal-cursor.svg",
+          "pngFile": "minimal-cursor.png",
+          "width": 468,
+          "height": 512,
+          "naturalWidth": 396,
+          "naturalHeight": 433,
+          "anchorX": 0.101,
+          "anchorY": 0.0508
+        },
+        "minimal-cursor": {
+          "svgFile": "minimal-cursor.svg",
+          "pngFile": "minimal-cursor.png",
+          "width": 468,
+          "height": 512,
+          "naturalWidth": 396,
+          "naturalHeight": 433,
+          "anchorX": 0.101,
+          "anchorY": 0.0508
+        }
+      }
+    }
+  }
+}

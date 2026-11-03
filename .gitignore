@@ -1,0 +1,21 @@
+# CMake temporary build outputs
+obs-telemetry-recorder/build/CMakeFiles/
+obs-telemetry-recorder/build/CMakeCache.txt
+obs-telemetry-recorder/build/cmake_install.cmake
+obs-telemetry-recorder/build/Makefile
+obs-telemetry-recorder/build/*.ninja
+obs-telemetry-recorder/build/*.dir/
+obs-telemetry-recorder/build/CMakeConfigureLog.yaml
+
+# MSVC object and intermediate files
+*.obj
+*.exp
+*.ilk
+*.pdb
+*.idb
+
+# OS and editor temp files
+.DS_Store
+Thumbs.db
+*.tmp
+temp.dll

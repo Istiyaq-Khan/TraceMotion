@@ -235,6 +235,14 @@ void TelemetryWorker::SamplePositionAndState(InteractionType interaction) {
 void TelemetryWorker::WorkerLoop() {
     workerThreadId_.store(GetCurrentThreadId(), std::memory_order_release);
 
+    // Ensure thread is Per-Monitor V2 DPI aware so cursor coordinates are unscaled physical screen pixels
+    typedef DPI_AWARENESS_CONTEXT (WINAPI *PFN_SetThreadDpiAwarenessContext)(DPI_AWARENESS_CONTEXT);
+    auto pfnSetThreadDpi = reinterpret_cast<PFN_SetThreadDpiAwarenessContext>(
+        GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetThreadDpiAwarenessContext"));
+    if (pfnSetThreadDpi) {
+        pfnSetThreadDpi(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+
     // Request 1ms OS timer resolution for smooth frame-pacing
     timeBeginPeriod(1);
 
@@ -370,8 +378,15 @@ void TelemetryWorker::FlushJsonToFile() {
         return;
     }
 
-    // Produce compact, high-speed JSON matching Recordly version 2 schema
-    out << "{\n  \"version\": " << TELEMETRY_SCHEMA_VERSION << ",\n  \"samples\": [\n";
+    // Produce compact, high-speed JSON matching Recordly version 2 schema with geometry calibration
+    out << "{\n  \"version\": " << TELEMETRY_SCHEMA_VERSION << ",\n"
+        << "  \"canvas\": {\"sourceWidth\":" << canvas_.sourceWidth
+        << ",\"sourceHeight\":" << canvas_.sourceHeight
+        << ",\"sourceX\":" << canvas_.sourceX
+        << ",\"sourceY\":" << canvas_.sourceY
+        << ",\"outputWidth\":" << canvas_.outputWidth
+        << ",\"outputHeight\":" << canvas_.outputHeight << "},\n"
+        << "  \"samples\": [\n";
 
     for (size_t i = 0; i < samples_.size(); ++i) {
         const auto& s = samples_[i];

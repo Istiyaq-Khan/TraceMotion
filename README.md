@@ -21,15 +21,16 @@ In post-production, the companion **Adobe After Effects Importer** (`TraceMotion
 flowchart LR
     subgraph OBS["1. Capture in OBS Studio (60 FPS)"]
         A[Display / Window Capture\nCapture Cursor = FALSE] -->|Clean Video Stream| V[output.mp4 / .mkv]
-        B[TraceMotion C++ Plugin\nMonotonic os_gettime_ns] -->|Sidecar Telemetry| T[output.mp4.cursor.json]
+        B[TraceMotion C++ Plugin\nPer-Monitor DPI Aware] -->|Sidecar Telemetry| T[output.mp4.cursor.json]
     end
 
     subgraph AE["2. Post-Production in After Effects"]
         V & T --> I[TraceMotionImporter.jsx]
-        I --> C[Master Camera Rig Null\nDeadband Math + Bezier Easing]
-        I --> R[RDP Keyframe Pruning\n85-90% Reduction]
-        I --> S[Vector Cursor Layer\nVelocity Sway + Click Bounce]
-        I --> W[Click Ripple Bursts]
+        I --> C[Master Camera Rig Null\nDeadband Math + Cubic Bezier]
+        I --> P[Recordly Spring Physics\nDamped Harmonic Oscillator]
+        I --> S[Calibrated Cursor Layer\nTahoe / macOS / Win11 / Figma]
+        I --> D[Dynamic State Switching\nArrow <-> Pointer Hand on Hover]
+        I --> W[Click VFX: 350ms Bounce\n600ms Ease-Out Accent Ripple]
     end
 ```
 
@@ -90,15 +91,28 @@ To get the full cinematic benefit of TraceMotion:
    `TraceMotion/after-effects-importer/TraceMotionImporter.jsx`
    *(Optional: Copy `TraceMotionImporter.jsx` into your After Effects `Support Files/Scripts/` folder to access it from the menu).*
 3. In the TraceMotion UI dialog:
-   - Click **Browse...** and select your recorded video file (`.mp4` or `.mkv`). The script automatically pairs the `.cursor.json` file.
-   - Set your **Default Zoom Depth** (default: `160%`).
-   - Set your **Deadband Margin** (default: `25%` safe-zone).
-   - Keep **Generate Synthetic Vector Cursor** and **Enable Motion Blur** checked.
+   - Click **Browse...** and select your recorded video file (`.mp4` or `.mkv`). The script automatically pairs companion `.cursor.json` telemetry.
+   - Choose your **Cursor Style**:
+     - **macOS Tahoe (Recordly Default)**
+     - **macOS Classic**
+     - **Windows 11 Fluent**
+     - **Figma / Minimal**
+     - **Vector Shape (Procedural Fallback)**
+   - Toggle **Asset Pipeline**:
+     - *High-Res PNG*: 512px retina resolution, 100% universal compatibility across all AE versions (CC 2020 through 2026+).
+     - *Vector SVG*: Native vector scaling (AE 2024+).
+   - Enable **Dynamic Cursor States**: Automatically switches between Arrow and Pointer Hand when hovering links/buttons or clicking.
+   - Select your **Motion Physics Tuning**:
+     - *Smooth (Recordly Signature)*: Damped harmonic oscillator with mass 1.4, damping 60, and zero jitter.
+     - *Focused*: Snappier response with higher stiffness.
+   - Set **Click Bounce & Ripple VFX**:
+     - Replicates Recordly's 350ms half-sine depression (100% -> 84% -> 100%) and 600ms cubic ease-out ripple bursts in Recordly Blue (`#2563EB`).
    - Click **Build TraceMotion Rig**.
-4. In seconds, After Effects creates a complete composition containing:
-   - **`[TraceMotion Camera Rig]`**: A master null with slider controls for dynamic camera zooms, focus targets, and smoothing tension.
-   - **`[TraceMotion Cursor]`**: A scalable vector shape layer featuring velocity sway expressions and click-scale bounces.
-   - **`[TraceMotion Click Ripples]`**: Expanding circular ripple burst animations synchronized with your clicks.
+4. In seconds, After Effects generates:
+   - **`[TraceMotion Camera Rig]`**: Master null with Deadband camera controls and cubic-bezier easing.
+   - **`[TraceMotion Cursor]`**: Pixel-accurate cursor layer with Anchor Point locked mathematically to the cursor tip (zero coordinate offset).
+   - **`[TraceMotion Pointer Hand]`**: Synchronized hover state with hold-keyframe opacity.
+   - **`[TraceMotion Click Ripples]`**: Expanding circular ripple burst animations positioned dynamically on clicked screen elements.
 
 ---
 
@@ -158,18 +172,33 @@ TraceMotion/
 │       └── telemetry_worker.cpp       # Zero-allocation high-frequency mouse telemetry poller
 │
 └── after-effects-importer/            # Adobe After Effects Importer & Rig Generator
-    └── TraceMotionImporter.jsx        # ExtendScript / ScriptUI rig generator
+    ├── TraceMotionImporter.jsx        # ExtendScript / ScriptUI rig generator
+    ├── port_cursors.cjs               # Asset rasterization & synchronization utility
+    └── assets/cursors/                # Ported Recordly Cursor Assets (106 SVGs + 106 Retina PNGs)
+        ├── manifest.json              # Hotspot calibration & dimension metadata
+        ├── tahoe/                     # macOS Tahoe cursor set (Recordly default)
+        ├── macos/                     # macOS Classic cursor set
+        ├── windows11/                 # Windows 11 Fluent cursor set
+        └── custom/                    # Figma / Minimal cursor set
 ```
 
 ---
 
 ## 📐 Telemetry Data Schema (Recordly Version 2)
 
-TraceMotion writes compact, valid JSON matching Recordly's production schema:
+TraceMotion writes compact, valid JSON matching Recordly's production schema with display geometry calibration:
 
 ```json
 {
   "version": 2,
+  "canvas": {
+    "sourceWidth": 1920,
+    "sourceHeight": 1080,
+    "sourceX": 0,
+    "sourceY": 0,
+    "outputWidth": 1920,
+    "outputHeight": 1080
+  },
   "samples": [
     {
       "timeMs": 0,
@@ -198,6 +227,7 @@ TraceMotion writes compact, valid JSON matching Recordly's production schema:
 
 ### Schema Attributes:
 - **`version`**: Integer schema version (`2`).
+- **`canvas`**: Calibration metadata containing base source dimensions (`sourceWidth`, `sourceHeight`), crop origin offsets (`sourceX`, `sourceY`), and scaled output resolution (`outputWidth`, `outputHeight`).
 - **`timeMs`**: Monotonic presentation timestamp in milliseconds relative to video start ($t=0$).
 - **`cx`, `cy`**: Normalized floating-point cursor position $[0.0000, 1.0000]$ relative to canvas width and height.
 - **`interactionType`**: `"move"`, `"click"`, `"double-click"`, `"right-click"`, `"middle-click"`, or `"mouseup"`.
