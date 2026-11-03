@@ -150,8 +150,14 @@
             if (!prop) return;
             try { prop.setValueAtTime(time, val); } catch (e) {}
         },
+        getNumKeys: function (prop) {
+            if (!prop) return 0;
+            try { return prop.numKeys || 0; } catch (e) { return 0; }
+        },
         setTemporalEase: function (prop, keyIdx, inEase, outEase) {
-            if (!prop || keyIdx < 1 || keyIdx > prop.numKeys) return;
+            if (!prop) return;
+            var totalK = SafeProp.getNumKeys(prop);
+            if (keyIdx < 1 || keyIdx > totalK) return;
             try {
                 var val = prop.keyValue(keyIdx);
                 if (val instanceof Array) {
@@ -1024,32 +1030,36 @@
 
             var zoomSlider = fxParade.addProperty("ADBE Slider Control");
             zoomSlider.name = "Zoom Scale";
-            var zoomProp = SafeProp.find(zoomSlider, ["ADBE Slider Control-0001", "Slider"], 1);
-            SafeProp.setValue(zoomProp, 100);
 
             var marginSlider = fxParade.addProperty("ADBE Slider Control");
             marginSlider.name = "Canvas Margin";
-            var marginProp = SafeProp.find(marginSlider, ["ADBE Slider Control-0001", "Slider"], 1);
-            SafeProp.setValue(marginProp, marginPct);
 
             var cornerSlider = fxParade.addProperty("ADBE Slider Control");
             cornerSlider.name = "Corner Radius";
-            var cornerProp = SafeProp.find(cornerSlider, ["ADBE Slider Control-0001", "Slider"], 1);
-            SafeProp.setValue(cornerProp, options.cornerRadius || 20);
 
             var shadowSlider = fxParade.addProperty("ADBE Slider Control");
             shadowSlider.name = "Shadow Intensity";
-            var shadowProp = SafeProp.find(shadowSlider, ["ADBE Slider Control-0001", "Slider"], 1);
-            SafeProp.setValue(shadowProp, options.shadowIntensity || 65);
 
             var swaySlider = fxParade.addProperty("ADBE Slider Control");
             swaySlider.name = "Cursor Sway";
-            var swayProp = SafeProp.find(swaySlider, ["ADBE Slider Control-0001", "Slider"], 1);
-            SafeProp.setValue(swayProp, options.swayAmount || 0.4);
 
             var camFocusCtrl = fxParade.addProperty("ADBE Point Control");
             camFocusCtrl.name = "Camera Focus";
-            var pointProp = SafeProp.find(camFocusCtrl, ["ADBE Point Control-0001", "Point"], 1);
+
+            // Query properties freshly now that all effects exist on the controller
+            var fxParadeFresh = controller.property("ADBE Effect Parade");
+            var zoomProp = SafeProp.find(fxParadeFresh.property("Zoom Scale"), ["ADBE Slider Control-0001", "Slider"], 1);
+            var marginProp = SafeProp.find(fxParadeFresh.property("Canvas Margin"), ["ADBE Slider Control-0001", "Slider"], 1);
+            var cornerProp = SafeProp.find(fxParadeFresh.property("Corner Radius"), ["ADBE Slider Control-0001", "Slider"], 1);
+            var shadowProp = SafeProp.find(fxParadeFresh.property("Shadow Intensity"), ["ADBE Slider Control-0001", "Slider"], 1);
+            var swayProp = SafeProp.find(fxParadeFresh.property("Cursor Sway"), ["ADBE Slider Control-0001", "Slider"], 1);
+            var pointProp = SafeProp.find(fxParadeFresh.property("Camera Focus"), ["ADBE Point Control-0001", "Point"], 1);
+
+            SafeProp.setValue(zoomProp, 100);
+            SafeProp.setValue(marginProp, marginPct);
+            SafeProp.setValue(cornerProp, options.cornerRadius || 20);
+            SafeProp.setValue(shadowProp, options.shadowIntensity || 65);
+            SafeProp.setValue(swayProp, options.swayAmount || 0.4);
             SafeProp.setValue(pointProp, [footageW / 2, footageH / 2]);
 
             // Connect Matte Roundness & Shadow Opacities to Controller Sliders
@@ -1171,10 +1181,12 @@
                     SafeProp.setValueAtTime(pointProp, tEnd, [footageW / 2, footageH / 2]);
                 }
 
-                for (var zk = 1; zk <= zoomProp.numKeys; zk++) {
+                var totalZKeys = SafeProp.getNumKeys(zoomProp);
+                for (var zk = 1; zk <= totalZKeys; zk++) {
                     SafeProp.setTemporalEase(zoomProp, zk, easeInOut, easeInOut);
                 }
-                for (var pk = 1; pk <= pointProp.numKeys; pk++) {
+                var totalPKeys = SafeProp.getNumKeys(pointProp);
+                for (var pk = 1; pk <= totalPKeys; pk++) {
                     SafeProp.setTemporalEase(pointProp, pk, easeInOut, easeInOut);
                     try {
                         pointProp.setSpatialContinuousAtKey(pk, true);
@@ -1217,7 +1229,8 @@
 
                 var easeOut = new KeyframeEase(0, 16.0);
                 var easeIn = new KeyframeEase(0, 85.0);
-                for (var k = 1; k <= pointProp.numKeys; k++) {
+                var totalContPKeys = SafeProp.getNumKeys(pointProp);
+                for (var k = 1; k <= totalContPKeys; k++) {
                     SafeProp.setTemporalEase(pointProp, k, easeIn, easeOut);
                     try {
                         pointProp.setSpatialContinuousAtKey(k, true);
@@ -1356,11 +1369,13 @@
                     SafeProp.setValueAtTime(pointerOpacity, tSec, isPointer ? 100.0 : 0.0);
                 }
 
-                for (var ok = 1; ok <= arrowOpacity.numKeys; ok++) {
-                    arrowOpacity.setInterpolationTypeAtKey(ok, KeyframeInterpolationType.HOLD);
+                var totalOk = SafeProp.getNumKeys(arrowOpacity);
+                for (var ok = 1; ok <= totalOk; ok++) {
+                    try { arrowOpacity.setInterpolationTypeAtKey(ok, KeyframeInterpolationType.HOLD); } catch (e) {}
                 }
-                for (var pk2 = 1; pk2 <= pointerOpacity.numKeys; pk2++) {
-                    pointerOpacity.setInterpolationTypeAtKey(pk2, KeyframeInterpolationType.HOLD);
+                var totalPk2 = SafeProp.getNumKeys(pointerOpacity);
+                for (var pk2 = 1; pk2 <= totalPk2; pk2++) {
+                    try { pointerOpacity.setInterpolationTypeAtKey(pk2, KeyframeInterpolationType.HOLD); } catch (e) {}
                 }
             }
 
@@ -1370,7 +1385,8 @@
                 SafeProp.setValueAtTime(cursorPosProp, s.timeSec, [s.cx * footageW, s.cy * footageH]);
             }
 
-            for (var ck = 1; ck <= cursorPosProp.numKeys; ck++) {
+            var totalCk = SafeProp.getNumKeys(cursorPosProp);
+            for (var ck = 1; ck <= totalCk; ck++) {
                 try {
                     cursorPosProp.setSpatialContinuousAtKey(ck, true);
                     cursorPosProp.setSpatialAutoBezierAtKey(ck, true);
@@ -1409,7 +1425,7 @@
                     SafeProp.setValueAtTime(cursorScaleProp, clickTime + 0.175, [depressedScale, depressedScale]);
                     SafeProp.setValueAtTime(cursorScaleProp, clickTime + 0.350, [baseScaleFactor, baseScaleFactor]);
 
-                    var keyCount = cursorScaleProp.numKeys;
+                    var keyCount = SafeProp.getNumKeys(cursorScaleProp);
                     if (keyCount >= 3) {
                         try {
                             SafeProp.setTemporalEase(cursorScaleProp, keyCount - 2, bounceEase, bounceEase);
@@ -1504,28 +1520,34 @@
             app.endUndoGroup();
             undoStarted = false;
 
-            alert(
-                "TraceMotion Rig Generated Successfully!\n\n" +
-                "• Comp: " + comp.name + " (" + compW + "x" + compH + " @ " + fps + " FPS)\n" +
-                "• Window Framing: " + (options.cornerRadius || 20) + "px rounded corners & soft drop shadows\n" +
-                "• Background: " + bgData.label + "\n" +
-                "• Selected Cursor: " + styleDef.label + "\n" +
-                "• Smart Auto-Zoom: " + targetZoomScale + "x (" + options.zoomMode + ")\n" +
-                "• Zero Render Artifacts: Verified clean ripple & guide overlays",
-                "TraceMotion Complete"
-            );
+            if (!options.silent) {
+                alert(
+                    "TraceMotion Rig Generated Successfully!\n\n" +
+                    "• Comp: " + comp.name + " (" + compW + "x" + compH + " @ " + fps + " FPS)\n" +
+                    "• Window Framing: " + (options.cornerRadius || 20) + "px rounded corners & soft drop shadows\n" +
+                    "• Background: " + bgData.label + "\n" +
+                    "• Selected Cursor: " + styleDef.label + "\n" +
+                    "• Smart Auto-Zoom: " + targetZoomScale + "x (" + options.zoomMode + ")\n" +
+                    "• Zero Render Artifacts: Verified clean ripple & guide overlays",
+                    "TraceMotion Complete"
+                );
+            }
+            return comp;
 
         } catch (e) {
             if (undoStarted) {
                 try { app.endUndoGroup(); } catch (ue) {}
             }
-            alert(
-                "TraceMotion Build Error:\n" + e.toString() +
-                "\nLine: " + (e.line !== undefined ? e.line : "unknown") +
-                (e.fileName ? "\nFile: " + e.fileName : "") +
-                "\nStack:\n" + (typeof $ !== "undefined" && $.stack ? $.stack : "n/a"),
-                "TraceMotion Exception"
-            );
+            if (!options.silent) {
+                alert(
+                    "TraceMotion Build Error:\n" + e.toString() +
+                    "\nLine: " + (e.line !== undefined ? e.line : "unknown") +
+                    (e.fileName ? "\nFile: " + e.fileName : "") +
+                    "\nStack:\n" + (typeof $ !== "undefined" && $.stack ? $.stack : "n/a"),
+                    "TraceMotion Exception"
+                );
+            }
+            throw e;
         }
     }
 
@@ -1804,7 +1826,7 @@
             g.strokePath(targetPen);
         }
 
-        var cursorCanvas = cursorPreviewRow.add("customControl", [0, 0, 56, 56]);
+        var cursorCanvas = cursorPreviewRow.add("panel", [0, 0, 56, 56], undefined, { borderStyle: "none" });
         cursorCanvas.size = [56, 56];
         cursorCanvas.preferredSize = [56, 56];
         cursorCanvas.maximumSize = [56, 56];
@@ -2020,7 +2042,7 @@
         bgPreviewRow.spacing = 10;
         bgPreviewRow.margins = [0, 2, 0, 4];
 
-        var bgCard = bgPreviewRow.add("customControl", [0, 0, 84, 44]);
+        var bgCard = bgPreviewRow.add("panel", [0, 0, 84, 44], undefined, { borderStyle: "none" });
         bgCard.size = [84, 44];
         bgCard.preferredSize = [84, 44];
         bgCard.maximumSize = [84, 44];
@@ -2326,6 +2348,17 @@
 
         return win;
     }
+
+    // Expose API for external automation and automated test harnesses
+    try {
+        $.global.TraceMotion = {
+            buildRig: buildTraceMotionRig,
+            updateRig: updateActiveRig,
+            buildUI: buildUI,
+            BACKGROUND_PRESETS: BACKGROUND_PRESETS,
+            CURSOR_MANIFEST: CURSOR_MANIFEST
+        };
+    } catch (apiErr) {}
 
     // Launch UI
     buildUI(thisObj);
