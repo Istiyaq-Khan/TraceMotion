@@ -410,7 +410,6 @@
             }
         } catch (e) {}
 
-        // Standard install directories
         searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/" + style.folder + "/");
         searchDirs.push(Folder.userData.fsName + "/Adobe/After Effects/TraceMotion/assets/cursors/" + style.folder + "/");
 
@@ -424,6 +423,29 @@
         }
 
         return null;
+    }
+
+    // Locate downscaled preview image for ScriptUI preview box
+    function getCursorPreviewFile(styleId) {
+        var searchDirs = [];
+        try {
+            if (typeof $.fileName !== "undefined" && $.fileName) {
+                var scriptF = new File($.fileName);
+                if (scriptF && scriptF.parent && scriptF.parent.exists) {
+                    searchDirs.push(scriptF.parent.fsName + "/assets/cursors/previews/" + styleId + "_preview.png");
+                }
+            }
+        } catch (e) {}
+
+        searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/previews/" + styleId + "_preview.png");
+        searchDirs.push(Folder.userData.fsName + "/Adobe/After Effects/TraceMotion/assets/cursors/previews/" + styleId + "_preview.png");
+
+        for (var i = 0; i < searchDirs.length; i++) {
+            var f = new File(searchDirs[i]);
+            if (f && f.exists) return f;
+        }
+
+        return getCursorAssetFile(styleId, "arrow", false);
     }
 
     // =========================================================================
@@ -759,28 +781,28 @@
     // =========================================================================
     var BACKGROUND_PRESETS = {
         "tahoe-dawn": {
-            label: "Tahoe Dawn (Electric Blue to Warm Violet)",
+            label: "Tahoe Dawn (Electric Blue / Warm Violet)",
             start: [0.231, 0.510, 0.965], // #3B82F6
             end: [0.545, 0.361, 0.965],   // #8B5CF6
             solid: "#1E1B4B",
             isRadial: false
         },
         "dark-studio": {
-            label: "Dark Studio (Charcoal to Deep Black)",
+            label: "Dark Studio (Charcoal / Deep Black)",
             start: [0.120, 0.120, 0.135], // #1F1F23
             end: [0.045, 0.045, 0.055],   // #0C0C0E
             solid: "#0F0F12",
             isRadial: true
         },
         "midnight-deep": {
-            label: "Midnight Deep (Navy to Indigo)",
+            label: "Midnight Deep (Slate Navy / Indigo)",
             start: [0.090, 0.125, 0.220], // #172038
             end: [0.040, 0.055, 0.110],   // #0A0E1C
             solid: "#0A0E1C",
             isRadial: true
         },
         "sequoia-azure": {
-            label: "Sequoia Azure (Vibrant Cobalt)",
+            label: "Sequoia Azure (Vibrant Azure Cobalt)",
             start: [0.145, 0.388, 0.922], // #2563EB
             end: [0.090, 0.225, 0.540],   // #173A8A
             solid: "#10234E",
@@ -803,13 +825,16 @@
     };
 
     // =========================================================================
-    // Main Rig Generation Core
+    // Main Rig Generation Core (Defensive Architecture - Zero Object Invalidation)
     // =========================================================================
     function buildTraceMotionRig(videoFile, telemetryFile, options) {
         var proj = ensureProject();
-        app.beginUndoGroup("Generate TraceMotion Rig");
+        var undoStarted = false;
 
         try {
+            app.beginUndoGroup("Build TraceMotion Rig");
+            undoStarted = true;
+
             // 1. Read and parse JSON telemetry
             if (!telemetryFile || !telemetryFile.exists) {
                 alert("Telemetry JSON file does not exist: " + (telemetryFile ? telemetryFile.fsName : "null"), "TraceMotion Error");
@@ -833,6 +858,11 @@
             }
             var importOpts = new ImportOptions(videoFile);
             var footageItem = proj.importFile(importOpts);
+            if (!footageItem) {
+                alert("Failed to import video footage into project.", "Import Error");
+                return;
+            }
+
             var footageW = footageItem.width;
             var footageH = footageItem.height;
             var duration = footageItem.duration;
@@ -844,7 +874,6 @@
             var compW = Math.round(footageW * marginScaleFactor);
             var compH = Math.round(footageH * marginScaleFactor);
 
-            // Ensure even dimensions
             if (compW % 2 !== 0) compW++;
             if (compH % 2 !== 0) compH++;
 
@@ -858,17 +887,26 @@
                 duration,
                 fps
             );
-            comp.openInViewer();
+            try { comp.openInViewer(); } catch (viewerErr) {}
             comp.motionBlur = options.enableMotionBlur;
 
-            // 5. Add Background Layer
+            // -----------------------------------------------------------------
+            // RIG LAYER STACK BUILD (Constructed in Natural Bottom-to-Top Order)
+            // Layer 6 (Bottom): Background Solid (Gradient Ramp)
+            // Layer 5: Clean Video Footage
+            // Layer 4: Window Track Matte (Shape Layer with Roundness)
+            // Layer 3: Master Camera Controller Null
+            // Layer 2: Calibrated Cursor Layer
+            // Layer 1 (Top): Click Ripple VFX
+            // -----------------------------------------------------------------
+
+            // 5. Layer 6 (Bottom): Add Background Layer (Never locked prematurely)
             var bgPresetKey = options.backgroundPreset || "tahoe-dawn";
             var bgData = BACKGROUND_PRESETS[bgPresetKey] || BACKGROUND_PRESETS["tahoe-dawn"];
             var bgLayer = null;
 
             if (bgPresetKey !== "none") {
                 bgLayer = comp.layers.addSolid(bgData.start, "TraceMotion_Background", compW, compH, 1.0, duration);
-                bgLayer.locked = true;
 
                 var bgFx = bgLayer.property("ADBE Effect Parade");
                 var ramp = bgFx.addProperty("ADBE Ramp");
@@ -893,42 +931,12 @@
                 SafeProp.setValue(rEndCol, bgData.end);
             }
 
-            // 6. Add Screen Recording Video Layer
+            // 6. Layer 5: Add Screen Recording Video Layer
             var videoLayer = comp.layers.add(footageItem);
             videoLayer.name = "Clean_Screen_Capture";
             videoLayer.motionBlur = options.enableMotionBlur;
 
-            // 7. Create Window Track Matte Layer (Rounded Corners)
-            var matteLayer = comp.layers.addShape();
-            matteLayer.name = "TraceMotion_Window_Matte";
-            matteLayer.guideLayer = false;
-
-            var mRoot = matteLayer.property("ADBE Root Vectors Group");
-            var mGrp = mRoot.addProperty("ADBE Vector Group");
-            mGrp.name = "Window Bounds";
-            var mVecs = mGrp.property("ADBE Vectors Group");
-
-            var mRect = mVecs.addProperty("ADBE Vector Shape - Rect");
-            var rectSizeProp = SafeProp.find(mRect, ["ADBE Vector Rect Size", "Size", "Größe", "Taille"], 1);
-            SafeProp.setValue(rectSizeProp, [footageW, footageH]);
-            var rectRoundProp = SafeProp.find(mRect, ["ADBE Vector Rect Roundness", "Roundness", "Rundung", "Rayon"], 3);
-            SafeProp.setValue(rectRoundProp, options.cornerRadius || 20);
-
-            var mFill = mVecs.addProperty("ADBE Vector Graphic - Fill");
-            var fillColProp = SafeProp.find(mFill, ["ADBE Vector Fill Color", "Color", "Farbe", "Couleur"], 1);
-            SafeProp.setValue(fillColProp, [1.0, 1.0, 1.0, 1.0]);
-
-            // Set Alpha Track Matte on video layer (CC 2020 legacy mode requires moveAfter)
-            try {
-                if (typeof videoLayer.setTrackMatte === "function") {
-                    videoLayer.setTrackMatte(matteLayer, TrackMatteType.ALPHA);
-                } else {
-                    videoLayer.moveAfter(matteLayer);
-                    videoLayer.trackMatteType = TrackMatteType.ALPHA;
-                }
-            } catch (matteErr) {}
-
-            // 8. Add Multi-Stage Realistic Soft Drop Shadows
+            // Apply Multi-Stage Drop Shadows to videoLayer
             var videoFx = videoLayer.property("ADBE Effect Parade");
 
             // Shadow 1: Ambient Soft Diffusion
@@ -955,7 +963,37 @@
             var s2Dir = SafeProp.find(shadow2, ["ADBE Drop Shadow-0005", "Direction"], 5);
             SafeProp.setValue(s2Dir, 180);
 
-            // 9. Create Master Controller Null
+            // 7. Layer 4: Create Window Track Matte Layer (Rounded Corners)
+            // Added immediately after videoLayer so it is directly above videoLayer (Index 1 vs Index 2)
+            var matteLayer = comp.layers.addShape();
+            matteLayer.name = "TraceMotion_Window_Matte";
+            matteLayer.guideLayer = false;
+
+            var mRoot = matteLayer.property("ADBE Root Vectors Group");
+            var mGrp = mRoot.addProperty("ADBE Vector Group");
+            mGrp.name = "Window Bounds";
+            var mVecs = mGrp.property("ADBE Vectors Group");
+
+            var mRect = mVecs.addProperty("ADBE Vector Shape - Rect");
+            var rectSizeProp = SafeProp.find(mRect, ["ADBE Vector Rect Size", "Size", "Größe", "Taille"], 1);
+            SafeProp.setValue(rectSizeProp, [footageW, footageH]);
+            var rectRoundProp = SafeProp.find(mRect, ["ADBE Vector Rect Roundness", "Roundness", "Rundung", "Rayon"], 3);
+            SafeProp.setValue(rectRoundProp, options.cornerRadius || 20);
+
+            var mFill = mVecs.addProperty("ADBE Vector Graphic - Fill");
+            var fillColProp = SafeProp.find(mFill, ["ADBE Vector Fill Color", "Color", "Farbe", "Couleur"], 1);
+            SafeProp.setValue(fillColProp, [1.0, 1.0, 1.0, 1.0]);
+
+            // Set Alpha Track Matte on video layer (native in AE 2020 through 2026+)
+            try {
+                if (typeof videoLayer.setTrackMatte === "function") {
+                    videoLayer.setTrackMatte(matteLayer, TrackMatteType.ALPHA);
+                } else {
+                    videoLayer.trackMatteType = TrackMatteType.ALPHA;
+                }
+            } catch (matteErr) {}
+
+            // 8. Layer 3: Create Master Camera Controller Null
             var controller = comp.layers.addNull();
             controller.name = "TraceMotion_Camera_Controller";
             controller.guideLayer = true;
@@ -997,7 +1035,7 @@
             s1Opac.expression = "var ctrl = thisComp.layer('" + controller.name + "');\nctrl.effect('Shadow Intensity')('Slider') * 0.70;";
             s2Opac.expression = "var ctrl = thisComp.layer('" + controller.name + "');\nctrl.effect('Shadow Intensity')('Slider') * 0.40;";
 
-            // 10. Recordly Damped Harmonic Oscillator Simulation
+            // 9. Recordly Damped Harmonic Oscillator Simulation
             var springConfig = getCursorSpringConfig(options.cursorSmoothing, {
                 stiffnessMultiplier: options.motionPreset === "focused" ? 1.35 : 0.92,
                 dampingMultiplier: options.motionPreset === "focused" ? 0.79 : 1.36,
@@ -1043,18 +1081,17 @@
                 finalKeys = rdpSimplify(simulatedPath, normTol);
             }
 
-            // 11. Recordly Smart Zoom & Pan Trajectory
+            // 10. Recordly Smart Zoom & Pan Trajectory
             var targetZoomScale = Math.max(1.0, (options.zoomDepthScale || 1.8));
 
             if (options.zoomMode === "auto-cluster") {
                 var clusters = buildRecordlyZoomClusters(rawSamples, duration, targetZoomScale);
                 var easeInOut = new KeyframeEase(0, 84.0);
 
-                // Initialize camera focus & scale at t = 0
                 SafeProp.setValueAtTime(pointProp, 0, [footageW / 2, footageH / 2]);
                 SafeProp.setValueAtTime(zoomProp, 0, 100);
 
-                var zoomTransitionSec = 1.1; // Smooth cubic zoom transition
+                var zoomTransitionSec = 1.1;
                 for (var cl = 0; cl < clusters.length; cl++) {
                     var cluster = clusters[cl];
                     var tStart = cluster.startSec;
@@ -1064,15 +1101,12 @@
 
                     var focusPt = [cluster.cx * footageW, cluster.cy * footageH];
 
-                    // Pre-zoom hold
                     SafeProp.setValueAtTime(zoomProp, tStart, 100);
                     SafeProp.setValueAtTime(pointProp, tStart, [footageW / 2, footageH / 2]);
 
-                    // Zoom in
                     SafeProp.setValueAtTime(zoomProp, tInEnd, targetZoomScale * 100);
                     SafeProp.setValueAtTime(pointProp, tInEnd, focusPt);
 
-                    // Zoom hold & out
                     SafeProp.setValueAtTime(zoomProp, tOutStart, targetZoomScale * 100);
                     SafeProp.setValueAtTime(pointProp, tOutStart, focusPt);
 
@@ -1080,7 +1114,6 @@
                     SafeProp.setValueAtTime(pointProp, tEnd, [footageW / 2, footageH / 2]);
                 }
 
-                // Apply continuous smooth temporal ease to all camera keys
                 for (var zk = 1; zk <= zoomProp.numKeys; zk++) {
                     SafeProp.setTemporalEase(zoomProp, zk, easeInOut, easeInOut);
                 }
@@ -1093,7 +1126,6 @@
                 }
 
             } else if (options.zoomMode === "continuous") {
-                // Deadband continuous follow
                 var currentFocusX = footageW / 2;
                 var currentFocusY = footageH / 2;
                 var halfSpanX = (footageW / 2) / targetZoomScale;
@@ -1136,12 +1168,11 @@
                     } catch (e) {}
                 }
             } else {
-                // Manual mode: static 100% zoom
                 SafeProp.setValue(zoomProp, 100);
                 SafeProp.setValue(pointProp, [footageW / 2, footageH / 2]);
             }
 
-            // 12. Camera Transformation Expressions
+            // 11. Camera Transformation Expressions
             videoLayer.transform.anchorPoint.expression =
                 "var ctrl = thisComp.layer('" + controller.name + "');\n" +
                 "ctrl.effect('Camera Focus')('Point');";
@@ -1156,7 +1187,6 @@
                 "var s = base * (z / 100.0);\n" +
                 "[s, s];";
 
-            // Track Matte tracks video layer exactly
             matteLayer.transform.anchorPoint.expression =
                 "var vid = thisComp.layer('" + videoLayer.name + "');\nvid.transform.anchorPoint;";
             matteLayer.transform.position.expression =
@@ -1164,7 +1194,7 @@
             matteLayer.transform.scale.expression =
                 "var vid = thisComp.layer('" + videoLayer.name + "');\nvid.transform.scale;";
 
-            // 13. Generate Calibrated Cursor Layer with Hotspot Locking
+            // 12. Layer 2: Generate Calibrated Cursor Layer with Hotspot Locking
             var styleDef = CURSOR_MANIFEST[options.cursorStyle] || CURSOR_MANIFEST.tahoe;
             var arrowData = (styleDef.cursors && styleDef.cursors.arrow) || { anchorX: 0.14, anchorY: 0.06 };
             var assetFile = getCursorAssetFile(options.cursorStyle, "arrow", options.preferSvg);
@@ -1180,7 +1210,6 @@
                 assetWidth = cursorFootage.width;
                 assetHeight = cursorFootage.height;
             } else {
-                // Procedural Clean Vector Shape Fallback
                 cursorLayer = comp.layers.addShape();
                 cursorLayer.name = "TraceMotion_Cursor [Procedural Vector]";
 
@@ -1215,12 +1244,10 @@
 
             cursorLayer.motionBlur = options.enableMotionBlur;
 
-            // Lock Anchor Point exactly to cursor hotspot
             var hotspotX = assetWidth * arrowData.anchorX;
             var hotspotY = assetHeight * arrowData.anchorY;
             SafeProp.setValue(cursorLayer.transform.anchorPoint, [hotspotX, hotspotY]);
 
-            // Base size scale matching Recordly dotRadius
             var baseCursorHeight = 28.0 * 2.5 * (options.cursorScalePct / 100.0) * (footageH / 1080.0) * styleDef.sizeMultiplier;
             var baseScaleFactor = (baseCursorHeight / assetHeight) * 100.0;
             SafeProp.setValue(cursorLayer.transform.scale, [baseScaleFactor, baseScaleFactor]);
@@ -1268,7 +1295,6 @@
                 }
             }
 
-            // Populate Smoothed Movement Keyframes
             var cursorPosProp = cursorLayer.transform.position;
             for (var f = 0; f < finalKeys.length; f++) {
                 var s = finalKeys[f];
@@ -1282,12 +1308,10 @@
                 } catch (e) {}
             }
 
-            // Parent coordinate transformation through camera zoom (0 pixel drift)
             cursorLayer.transform.position.expression =
                 "var vid = thisComp.layer('" + videoLayer.name + "');\n" +
                 "vid.toComp(value);";
 
-            // Recordly Dynamic Cursor Sway
             cursorLayer.transform.rotation.expression =
                 "var v = transform.position.velocity;\n" +
                 "var spd = Math.sqrt(v[0] * v[0] + v[1] * v[1]);\n" +
@@ -1299,7 +1323,6 @@
                 "    clamp(dirBias * speedFactor * 10.0 * sway * 3.0, -35, 35);\n" +
                 "} else { 0; }";
 
-            // Recordly Half-Sine Click Bounce
             if (options.createClickBounce) {
                 var cursorScaleProp = cursorLayer.transform.scale;
                 var bounceEase = new KeyframeEase(0, 75.0);
@@ -1324,13 +1347,12 @@
                 }
             }
 
-            // 14. Clean Click Ripple VFX (ZERO CENTER CIRCLE ARTIFACT)
+            // 13. Layer 1 (Top): Clean Click Ripple VFX (ZERO CENTER CIRCLE ARTIFACT)
             if (options.clickEffect !== "none" && clickSamplesList.length > 0) {
                 var rippleLayer = comp.layers.addShape();
                 rippleLayer.name = "TraceMotion_Click_Ripples";
                 rippleLayer.motionBlur = options.enableMotionBlur;
 
-                // Anchor to [0, 0] so vector positions match video space exactly
                 SafeProp.setValue(rippleLayer.transform.anchorPoint, [0, 0]);
                 SafeProp.setValue(rippleLayer.transform.position, [0, 0]);
 
@@ -1348,7 +1370,7 @@
                 for (var rc = 0; rc < clickSamplesList.length; rc++) {
                     var clickSample = clickSamplesList[rc];
                     var tClickStart = (clickSample.timeMs + 175) / 1000.0;
-                    var tClickEnd = tClickStart + 0.550; // 550ms ripple expansion
+                    var tClickEnd = tClickStart + 0.550;
 
                     var rGroup = rippleRoot.addProperty("ADBE Vector Group");
                     rGroup.name = "Ripple_" + (rc + 1);
@@ -1368,7 +1390,6 @@
 
                     SafeProp.setValue(posProp, [clickSample.cx * footageW, clickSample.cy * footageH]);
 
-                    // STRICT 4-POINT TEMPORAL ENVELOPE: Eliminates center circle artifact
                     SafeProp.setValueAtTime(opacProp, 0, 0.0);
                     SafeProp.setValueAtTime(sizeProp, 0, [0, 0]);
 
@@ -1398,6 +1419,14 @@
                 }
             }
 
+            // 14. Optional Lock on Background Layer at the Very End
+            if (bgLayer) {
+                try { bgLayer.locked = true; } catch (lockErr) {}
+            }
+
+            app.endUndoGroup();
+            undoStarted = false;
+
             alert(
                 "TraceMotion Rig Generated Successfully!\n\n" +
                 "• Comp: " + comp.name + " (" + compW + "x" + compH + " @ " + fps + " FPS)\n" +
@@ -1409,10 +1438,17 @@
                 "TraceMotion Complete"
             );
 
-        } catch (err) {
-            alert("Error constructing TraceMotion rig:\n" + err.toString(), "TraceMotion Exception");
-        } finally {
-            app.endUndoGroup();
+        } catch (e) {
+            if (undoStarted) {
+                try { app.endUndoGroup(); } catch (ue) {}
+            }
+            alert(
+                "TraceMotion Build Error:\n" + e.toString() +
+                "\nLine: " + (e.line !== undefined ? e.line : "unknown") +
+                (e.fileName ? "\nFile: " + e.fileName : "") +
+                "\nStack:\n" + (typeof $ !== "undefined" && $.stack ? $.stack : "n/a"),
+                "TraceMotion Exception"
+            );
         }
     }
 
@@ -1427,8 +1463,11 @@
             return;
         }
 
-        app.beginUndoGroup("Update TraceMotion Rig Parameters");
+        var undoStarted = false;
         try {
+            app.beginUndoGroup("Update TraceMotion Rig Parameters");
+            undoStarted = true;
+
             var cornerProp = SafeProp.find(ctrl.effect("Corner Radius"), ["ADBE Slider Control-0001", "Slider"], 1);
             if (cornerProp) cornerProp.setValue(options.cornerRadius);
 
@@ -1444,6 +1483,11 @@
             // Update Background Gradient if present
             var bgLayer = comp.layer("TraceMotion_Background");
             if (bgLayer && options.backgroundPreset !== "none") {
+                var wasLocked = bgLayer.locked;
+                if (wasLocked) {
+                    try { bgLayer.locked = false; } catch (e) {}
+                }
+
                 var bgData = BACKGROUND_PRESETS[options.backgroundPreset] || BACKGROUND_PRESETS["tahoe-dawn"];
                 var ramp = bgLayer.effect("Background Gradient");
                 if (ramp) {
@@ -1454,18 +1498,26 @@
                     SafeProp.setValue(rEndCol, bgData.end);
                     SafeProp.setValue(rShape, bgData.isRadial ? 2 : 1);
                 }
+
+                if (wasLocked) {
+                    try { bgLayer.locked = true; } catch (e) {}
+                }
             }
+
+            app.endUndoGroup();
+            undoStarted = false;
 
             alert("TraceMotion rig parameters updated successfully in active composition!", "TraceMotion Updated");
         } catch (e) {
-            alert("Error updating rig: " + e.toString(), "TraceMotion Error");
-        } finally {
-            app.endUndoGroup();
+            if (undoStarted) {
+                try { app.endUndoGroup(); } catch (ue) {}
+            }
+            alert("Error updating rig: " + e.toString() + "\nLine: " + e.line, "TraceMotion Error");
         }
     }
 
     // =========================================================================
-    // Modern ScriptUI User Interface (Dockable Panel & Dialog Dual-Mode)
+    // Modern ScriptUI User Interface (Dockable Panel, Live Previews & Smooth Scrolling)
     // =========================================================================
     function buildUI(thisObj) {
         var isPanel = (thisObj instanceof Panel);
@@ -1473,8 +1525,8 @@
 
         win.orientation = "column";
         win.alignChildren = ["fill", "top"];
-        win.spacing = 8;
-        win.margins = 10;
+        win.spacing = 6;
+        win.margins = 8;
 
         // Custom Dark Palette Styling
         try {
@@ -1482,7 +1534,7 @@
             win.graphics.backgroundColor = darkBg;
         } catch (e) {}
 
-        // --- Header Banner ---
+        // --- Header Banner (Fixed at Top) ---
         var headerGrp = win.add("group");
         headerGrp.orientation = "row";
         headerGrp.alignChildren = ["fill", "center"];
@@ -1507,27 +1559,56 @@
         var statusTxt = headerGrp.add("statictext", undefined, hasActiveRig ? "● Rig Active: " + activeComp.name : ("○ Ready (" + (isAE2020 ? "AE 2020" : "AE v" + Math.floor(aeMajorVer)) + ")"));
         statusTxt.alignment = ["right", "center"];
 
+        // =====================================================================
+        // SCROLLABLE CONTAINER (Responsive Viewport with Ultra-Slim Scrollbar)
+        // =====================================================================
+        var outerScrollBox = win.add("group");
+        outerScrollBox.orientation = "row";
+        outerScrollBox.alignment = ["fill", "fill"];
+        outerScrollBox.alignChildren = ["fill", "fill"];
+        outerScrollBox.spacing = 3;
+        outerScrollBox.margins = 0;
+
+        var scrollViewport = outerScrollBox.add("group");
+        scrollViewport.orientation = "column";
+        scrollViewport.alignment = ["fill", "fill"];
+        scrollViewport.alignChildren = ["fill", "top"];
+        scrollViewport.spacing = 0;
+        scrollViewport.margins = 0;
+
+        var contentGroup = scrollViewport.add("group");
+        contentGroup.orientation = "column";
+        contentGroup.alignment = ["fill", "top"];
+        contentGroup.alignChildren = ["fill", "top"];
+        contentGroup.spacing = 6;
+        contentGroup.margins = [0, 0, 4, 0];
+
+        var scrollBar = outerScrollBox.add("scrollbar", [0, 0, 8, 100], 0, 0, 100);
+        scrollBar.alignment = ["right", "fill"];
+        scrollBar.preferredSize.width = 8;
+        scrollBar.visible = false;
+
         // --- SECTION 1: Source Media & Telemetry ---
-        var secMedia = win.add("panel", undefined, "1. Source Media & Telemetry Ingest");
+        var secMedia = contentGroup.add("panel", undefined, "1. Source Media & Telemetry Ingest");
         secMedia.orientation = "column";
         secMedia.alignChildren = ["fill", "top"];
-        secMedia.spacing = 6;
-        secMedia.margins = 10;
+        secMedia.spacing = 5;
+        secMedia.margins = 8;
 
         var videoRow = secMedia.add("group");
         var vidLbl = videoRow.add("statictext", undefined, "Video Footage:");
-        vidLbl.preferredSize.width = 95;
+        vidLbl.preferredSize.width = 90;
         var videoPathInput = videoRow.add("edittext", undefined, "");
-        videoPathInput.preferredSize.width = 170;
+        videoPathInput.preferredSize.width = 160;
         videoPathInput.helpTip = "Screen recording video file (MP4, MOV, MKV, WebM) captured via OBS or Recordly.";
         var videoBrowseBtn = videoRow.add("button", undefined, "Browse...");
         videoBrowseBtn.preferredSize.width = 65;
 
         var jsonRow = secMedia.add("group");
         var jsonLbl = jsonRow.add("statictext", undefined, "Cursor JSON:");
-        jsonLbl.preferredSize.width = 95;
+        jsonLbl.preferredSize.width = 90;
         var jsonPathInput = jsonRow.add("edittext", undefined, "");
-        jsonPathInput.preferredSize.width = 170;
+        jsonPathInput.preferredSize.width = 160;
         jsonPathInput.helpTip = "Companion mouse telemetry file (.cursor.json) containing synchronized cursor coordinates and click events.";
         var jsonBrowseBtn = jsonRow.add("button", undefined, "Browse...");
         jsonBrowseBtn.preferredSize.width = 65;
@@ -1556,16 +1637,56 @@
             }
         };
 
-        // --- SECTION 2: Asset & Cursor Selection ---
-        var secCursor = win.add("panel", undefined, "2. Cursor Model & Visual Assets");
+        // --- SECTION 2: Cursor Model & Live Visual Preview ---
+        var secCursor = contentGroup.add("panel", undefined, "2. Cursor Model & Visual Assets");
         secCursor.orientation = "column";
         secCursor.alignChildren = ["fill", "top"];
-        secCursor.spacing = 6;
-        secCursor.margins = 10;
+        secCursor.spacing = 5;
+        secCursor.margins = 8;
+
+        // Visual Mouse Cursor Preview Card
+        var cursorPreviewRow = secCursor.add("group");
+        cursorPreviewRow.orientation = "row";
+        cursorPreviewRow.alignChildren = ["left", "center"];
+        cursorPreviewRow.spacing = 10;
+        cursorPreviewRow.margins = [0, 2, 0, 4];
+
+        var cursorCard = cursorPreviewRow.add("group");
+        cursorCard.preferredSize = [54, 54];
+        cursorCard.maximumSize = [54, 54];
+        cursorCard.orientation = "stack";
+        cursorCard.alignChildren = ["center", "center"];
+
+        cursorCard.onDraw = function () {
+            var g = this.graphics;
+            var w = this.size[0];
+            var h = this.size[1];
+            var cardB = g.newBrush(g.BrushType.SOLID_COLOR, [0.18, 0.18, 0.20, 1.0]);
+            g.rectPath(0, 0, w, h);
+            g.fillPath(cardB);
+            var borderP = g.newPen(g.PenType.SOLID_COLOR, [0.32, 0.32, 0.36, 1.0], 1);
+            g.rectPath(0, 0, w, h);
+            g.strokePath(borderP);
+        };
+
+        var initialPreviewFile = getCursorPreviewFile("tahoe");
+        var cursorPreviewImg = cursorCard.add("image", [0, 0, 48, 48], initialPreviewFile);
+        cursorPreviewImg.alignment = ["center", "center"];
+
+        var cursorMetaGrp = cursorPreviewRow.add("group");
+        cursorMetaGrp.orientation = "column";
+        cursorMetaGrp.alignChildren = ["left", "center"];
+        cursorMetaGrp.spacing = 2;
+
+        var cursorTitleTxt = cursorMetaGrp.add("statictext", undefined, "macOS Tahoe (Recordly Default)");
+        try { cursorTitleTxt.graphics.font = ScriptUI.newFont("Verdana", "Bold", 11); } catch (e) {}
+
+        var cursorHotspotTxt = cursorMetaGrp.add("statictext", undefined, "Hotspot: [14%, 6%]");
+        var cursorResTxt = cursorMetaGrp.add("statictext", undefined, "512px Retina Asset");
 
         var styleRow = secCursor.add("group");
         var styleLbl = styleRow.add("statictext", undefined, "Cursor Style:");
-        styleLbl.preferredSize.width = 95;
+        styleLbl.preferredSize.width = 90;
         var cursorDropdown = styleRow.add("dropdownlist", undefined, [
             "macOS Tahoe (Recordly Default)",
             "macOS Classic",
@@ -1577,18 +1698,45 @@
         var savedStyleIdx = parseInt(getPref("cursorStyleIdx", "0"), 10);
         cursorDropdown.selection = (savedStyleIdx >= 0 && savedStyleIdx < 5) ? savedStyleIdx : 0;
 
+        function updateCursorPreview(styleKey) {
+            var sDef = CURSOR_MANIFEST[styleKey] || CURSOR_MANIFEST.tahoe;
+            cursorTitleTxt.text = sDef.label;
+
+            var prevF = getCursorPreviewFile(styleKey);
+            if (prevF && prevF.exists) {
+                try {
+                    cursorPreviewImg.image = prevF;
+                    cursorPreviewImg.visible = true;
+                } catch (e) {}
+            } else {
+                cursorPreviewImg.visible = false;
+            }
+
+            var aData = (sDef.cursors && sDef.cursors.arrow) || { anchorX: 0, anchorY: 0 };
+            cursorHotspotTxt.text = "Hotspot: [" + Math.round(aData.anchorX * 100) + "%, " + Math.round(aData.anchorY * 100) + "%]";
+            cursorResTxt.text = sDef.folder ? "512px Retina Asset" : "Procedural Vector Shape";
+        }
+
+        var styleKeys = ["tahoe", "macos", "windows11", "custom", "procedural"];
+        cursorDropdown.onChange = function () {
+            var selIdx = cursorDropdown.selection ? cursorDropdown.selection.index : 0;
+            var k = styleKeys[selIdx] || "tahoe";
+            updateCursorPreview(k);
+        };
+        updateCursorPreview(styleKeys[cursorDropdown.selection ? cursorDropdown.selection.index : 0]);
+
         var radRow = secCursor.add("group");
         var radLbl = radRow.add("statictext", undefined, "Asset Format:");
-        radLbl.preferredSize.width = 95;
+        radLbl.preferredSize.width = 90;
         var radPng = radRow.add("radiobutton", undefined, "PNG (Universal)");
         var radSvg = radRow.add("radiobutton", undefined, "Vector SVG (AE 2024+)");
-        
+
         var canUseSvg = (aeMajorVer >= 24.0);
         var savedUseSvg = (getPref("preferSvg", "false") === "true") && canUseSvg;
         radPng.value = !savedUseSvg;
         radSvg.value = savedUseSvg;
         radSvg.enabled = canUseSvg;
-        
+
         radPng.helpTip = "High-resolution 512px Retina raster asset, calibrated for 100% compatibility with After Effects CC 2020 through 2026+.";
         radSvg.helpTip = canUseSvg 
             ? "Scalable vector asset, natively rendered in AE 2024 and newer." 
@@ -1596,9 +1744,9 @@
 
         var sizeRow = secCursor.add("group");
         var sizeLbl = sizeRow.add("statictext", undefined, "Cursor Scale (%):");
-        sizeLbl.preferredSize.width = 95;
+        sizeLbl.preferredSize.width = 90;
         var sizeSlider = sizeRow.add("slider", undefined, 100, 40, 250);
-        sizeSlider.preferredSize.width = 150;
+        sizeSlider.preferredSize.width = 145;
         var sizeInput = sizeRow.add("edittext", undefined, getPref("cursorScalePct", "100"));
         sizeInput.characters = 4;
         sizeSlider.value = parseFloat(sizeInput.text) || 100;
@@ -1620,7 +1768,7 @@
 
         var fxRow = secCursor.add("group");
         var fxLbl = fxRow.add("statictext", undefined, "Click Ripple VFX:");
-        fxLbl.preferredSize.width = 95;
+        fxLbl.preferredSize.width = 90;
         var fxDropdown = fxRow.add("dropdownlist", undefined, ["Recordly Accent Ring", "None"]);
         var savedFxIdx = parseInt(getPref("clickEffectIdx", "0"), 10);
         fxDropdown.selection = (savedFxIdx >= 0 && savedFxIdx < 2) ? savedFxIdx : 0;
@@ -1628,21 +1776,21 @@
 
         var colorRow = secCursor.add("group");
         var colLbl = colorRow.add("statictext", undefined, "Ripple Color (Hex):");
-        colLbl.preferredSize.width = 95;
+        colLbl.preferredSize.width = 90;
         var colorInput = colorRow.add("edittext", undefined, getPref("clickColor", "#2563EB"));
         colorInput.characters = 8;
         colorInput.helpTip = "Hexadecimal color code for the click ripple animation (Default: #2563EB Recordly Blue).";
 
         // --- SECTION 3: Smart Zoom & Framing Engine ---
-        var secZoom = win.add("panel", undefined, "3. Smart Zoom & Camera Engine");
+        var secZoom = contentGroup.add("panel", undefined, "3. Smart Zoom & Camera Engine");
         secZoom.orientation = "column";
         secZoom.alignChildren = ["fill", "top"];
-        secZoom.spacing = 6;
-        secZoom.margins = 10;
+        secZoom.spacing = 5;
+        secZoom.margins = 8;
 
         var zoomModeRow = secZoom.add("group");
         var zmModeLbl = zoomModeRow.add("statictext", undefined, "Zoom Engine:");
-        zmModeLbl.preferredSize.width = 95;
+        zmModeLbl.preferredSize.width = 90;
         var zoomModeDropdown = zoomModeRow.add("dropdownlist", undefined, [
             "Smart Auto-Cluster (Recordly Dwell & Clicks)",
             "Continuous Deadband Follow",
@@ -1654,7 +1802,7 @@
 
         var depthRow = secZoom.add("group");
         var depthLbl = depthRow.add("statictext", undefined, "Zoom Scale Level:");
-        depthLbl.preferredSize.width = 95;
+        depthLbl.preferredSize.width = 90;
         var depthDropdown = depthRow.add("dropdownlist", undefined, [
             "1.25x (Subtle Detail)",
             "1.50x (Moderate Focus)",
@@ -1668,9 +1816,9 @@
 
         var smoothRow = secZoom.add("group");
         var smLbl = smoothRow.add("statictext", undefined, "Spring Physics:");
-        smLbl.preferredSize.width = 95;
+        smLbl.preferredSize.width = 90;
         var smoothSlider = smoothRow.add("slider", undefined, 67, 10, 150);
-        smoothSlider.preferredSize.width = 150;
+        smoothSlider.preferredSize.width = 145;
         var smoothInput = smoothRow.add("edittext", undefined, getPref("cursorSmoothing", "0.67"));
         smoothInput.characters = 4;
         smoothSlider.value = Math.round((parseFloat(smoothInput.text) || 0.67) * 100);
@@ -1682,18 +1830,108 @@
         chkMotionBlur.value = getPref("enableMotionBlur", "true") === "true";
         chkMotionBlur.helpTip = "Enables After Effects 180-degree shutter motion blur on cursor and camera pans.";
 
-        // --- SECTION 4: Window Framing & Canvas Backdrop ---
-        var secFrame = win.add("panel", undefined, "4. Window Framing, Shadows & Backdrop");
+        // --- SECTION 4: Window Framing & Live Background Preview ---
+        var secFrame = contentGroup.add("panel", undefined, "4. Window Framing, Shadows & Backdrop");
         secFrame.orientation = "column";
         secFrame.alignChildren = ["fill", "top"];
-        secFrame.spacing = 6;
-        secFrame.margins = 10;
+        secFrame.spacing = 5;
+        secFrame.margins = 8;
+
+        // Visual Background Gradient Preview Card
+        var bgPreviewRow = secFrame.add("group");
+        bgPreviewRow.orientation = "row";
+        bgPreviewRow.alignChildren = ["left", "center"];
+        bgPreviewRow.spacing = 10;
+        bgPreviewRow.margins = [0, 2, 0, 4];
+
+        var bgCard = bgPreviewRow.add("group");
+        bgCard.preferredSize = [76, 38];
+        bgCard.maximumSize = [76, 38];
+
+        var bgKeys = ["tahoe-dawn", "dark-studio", "midnight-deep", "sequoia-azure", "solid-charcoal", "none"];
+        var savedBgIdx = parseInt(getPref("bgPresetIdx", "0"), 10);
+        var currentBgKey = bgKeys[(savedBgIdx >= 0 && savedBgIdx < 6) ? savedBgIdx : 0] || "tahoe-dawn";
+
+        bgCard.onDraw = function () {
+            var g = this.graphics;
+            var w = this.size[0];
+            var h = this.size[1];
+            if (w <= 0 || h <= 0) return;
+
+            if (currentBgKey === "none") {
+                var trB = g.newBrush(g.BrushType.SOLID_COLOR, [0.12, 0.12, 0.14, 1.0]);
+                g.rectPath(0, 0, w, h);
+                g.fillPath(trB);
+                var tPen = g.newPen(g.PenType.SOLID_COLOR, [0.55, 0.55, 0.60, 1.0], 1);
+                g.drawString("Transparent", tPen, 6, 13);
+                return;
+            }
+
+            var bData = BACKGROUND_PRESETS[currentBgKey] || BACKGROUND_PRESETS["tahoe-dawn"];
+            var sCol = bData.start;
+            var eCol = bData.end;
+            var steps = 24;
+            var stripW = w / steps;
+
+            for (var i = 0; i < steps; i++) {
+                var t = i / (steps - 1);
+                var r = sCol[0] + (eCol[0] - sCol[0]) * t;
+                var gr = sCol[1] + (eCol[1] - sCol[1]) * t;
+                var b = sCol[2] + (eCol[2] - sCol[2]) * t;
+                var stripB = g.newBrush(g.BrushType.SOLID_COLOR, [r, gr, b, 1.0]);
+                g.rectPath(i * stripW, 0, stripW + 1, h);
+                g.fillPath(stripB);
+            }
+
+            var borderPen = g.newPen(g.PenType.SOLID_COLOR, [0.35, 0.35, 0.40, 1.0], 1);
+            g.rectPath(0, 0, w, h);
+            g.strokePath(borderPen);
+        };
+
+        var bgMetaGrp = bgPreviewRow.add("group");
+        bgMetaGrp.orientation = "column";
+        bgMetaGrp.alignChildren = ["left", "center"];
+        bgMetaGrp.spacing = 2;
+
+        var bgTitleTxt = bgMetaGrp.add("statictext", undefined, "Tahoe Dawn");
+        try { bgTitleTxt.graphics.font = ScriptUI.newFont("Verdana", "Bold", 11); } catch (e) {}
+
+        var bgTypeTxt = bgMetaGrp.add("statictext", undefined, "Electric Blue to Warm Violet");
+
+        var bgRow = secFrame.add("group");
+        var bgLbl = bgRow.add("statictext", undefined, "Backdrop Style:");
+        bgLbl.preferredSize.width = 90;
+        var bgDropdown = bgRow.add("dropdownlist", undefined, [
+            "Tahoe Dawn (Electric Blue / Violet)",
+            "Dark Studio (Charcoal / Deep Black)",
+            "Midnight Deep (Navy / Indigo)",
+            "Sequoia Azure (Vibrant Cobalt)",
+            "Clean Charcoal Solid",
+            "Transparent / None (Edge-to-Edge)"
+        ]);
+        bgDropdown.selection = (savedBgIdx >= 0 && savedBgIdx < 6) ? savedBgIdx : 0;
+        bgDropdown.helpTip = "Generates a stylized desktop backdrop solid beneath the screen capture window.";
+
+        function updateBgPreview(key) {
+            currentBgKey = key;
+            var bData = BACKGROUND_PRESETS[key] || BACKGROUND_PRESETS["tahoe-dawn"];
+            bgTitleTxt.text = bData.label.split(" (")[0];
+            bgTypeTxt.text = key === "none" ? "Edge-to-Edge Composition" : (bData.isRadial ? "Radial Gradient Ramp" : "Linear Gradient Ramp");
+            try { bgCard.notify("onDraw"); } catch (e) {}
+        }
+
+        bgDropdown.onChange = function () {
+            var selIdx = bgDropdown.selection ? bgDropdown.selection.index : 0;
+            var k = bgKeys[selIdx] || "tahoe-dawn";
+            updateBgPreview(k);
+        };
+        updateBgPreview(currentBgKey);
 
         var cornerRow = secFrame.add("group");
         var crnLbl = cornerRow.add("statictext", undefined, "Corner Radius (px):");
-        crnLbl.preferredSize.width = 95;
+        crnLbl.preferredSize.width = 90;
         var cornerSlider = cornerRow.add("slider", undefined, 20, 0, 64);
-        cornerSlider.preferredSize.width = 150;
+        cornerSlider.preferredSize.width = 145;
         var cornerInput = cornerRow.add("edittext", undefined, getPref("cornerRadius", "20"));
         cornerInput.characters = 4;
         cornerSlider.value = parseFloat(cornerInput.text) || 20;
@@ -1703,9 +1941,9 @@
 
         var shadowRow = secFrame.add("group");
         var shdLbl = shadowRow.add("statictext", undefined, "Shadow Depth (%):");
-        shdLbl.preferredSize.width = 95;
+        shdLbl.preferredSize.width = 90;
         var shadowSlider = shadowRow.add("slider", undefined, 65, 0, 100);
-        shadowSlider.preferredSize.width = 150;
+        shadowSlider.preferredSize.width = 145;
         var shadowInput = shadowRow.add("edittext", undefined, getPref("shadowIntensity", "65"));
         shadowInput.characters = 4;
         shadowSlider.value = parseFloat(shadowInput.text) || 65;
@@ -1715,9 +1953,9 @@
 
         var marginRow = secFrame.add("group");
         var mgnLbl = marginRow.add("statictext", undefined, "Canvas Margin (%):");
-        mgnLbl.preferredSize.width = 95;
+        mgnLbl.preferredSize.width = 90;
         var marginSlider = marginRow.add("slider", undefined, 12, 0, 25);
-        marginSlider.preferredSize.width = 150;
+        marginSlider.preferredSize.width = 145;
         var marginInput = marginRow.add("edittext", undefined, getPref("canvasMargin", "12"));
         marginInput.characters = 4;
         marginSlider.value = parseFloat(marginInput.text) || 12;
@@ -1725,38 +1963,23 @@
         marginInput.onChange = function () { marginSlider.value = parseFloat(marginInput.text) || 12; };
         marginSlider.helpTip = "Breathing room margin around floating capture window to showcase rounded corners and drop shadows.";
 
-        var bgRow = secFrame.add("group");
-        var bgLbl = bgRow.add("statictext", undefined, "Backdrop Style:");
-        bgLbl.preferredSize.width = 95;
-        var bgDropdown = bgRow.add("dropdownlist", undefined, [
-            "Tahoe Dawn (Electric Blue / Violet)",
-            "Dark Studio (Charcoal / Deep Black)",
-            "Midnight Deep (Navy / Indigo)",
-            "Sequoia Azure (Vibrant Cobalt)",
-            "Clean Charcoal Solid",
-            "Transparent / None (Edge-to-Edge)"
-        ]);
-        var savedBgIdx = parseInt(getPref("bgPresetIdx", "0"), 10);
-        bgDropdown.selection = (savedBgIdx >= 0 && savedBgIdx < 6) ? savedBgIdx : 0;
-        bgDropdown.helpTip = "Generates a stylized desktop backdrop solid beneath the screen capture window.";
-
-        // --- SECTION 5: Action Buttons ---
+        // --- SECTION 5: Action Buttons (Fixed at Bottom) ---
         var actionGrp = win.add("group");
         actionGrp.orientation = "row";
         actionGrp.alignment = ["fill", "bottom"];
-        actionGrp.spacing = 8;
+        actionGrp.spacing = 6;
 
         var helpBtn = actionGrp.add("button", undefined, "[?] Help");
-        helpBtn.preferredSize.width = 65;
+        helpBtn.preferredSize.width = 60;
         helpBtn.helpTip = "View detailed parameter guides and recommended Recordly production standards.";
 
         var updateBtn = actionGrp.add("button", undefined, "Update Active Rig");
-        updateBtn.preferredSize.width = 130;
+        updateBtn.preferredSize.width = 125;
         updateBtn.enabled = hasActiveRig;
         updateBtn.helpTip = "Updates the corner radius, shadow, margin, and backdrop of the active composition rig without re-importing.";
 
         var buildBtn = actionGrp.add("button", undefined, "Build TraceMotion Rig");
-        buildBtn.preferredSize.width = 155;
+        buildBtn.preferredSize.width = 150;
         buildBtn.helpTip = "Ingests source media and telemetry, builds the complete smart zoom and window framing rig.";
 
         helpBtn.onClick = function () {
@@ -1777,7 +2000,6 @@
         };
 
         function gatherOptions() {
-            var styleKeys = ["tahoe", "macos", "windows11", "custom", "procedural"];
             var selectedStyleKey = (cursorDropdown.selection ? styleKeys[cursorDropdown.selection.index] : null) || "tahoe";
 
             var zoomModes = ["auto-cluster", "continuous", "none"];
@@ -1786,12 +2008,10 @@
             var depthScales = [1.25, 1.50, 1.80, 2.20, 3.50];
             var selectedDepthScale = (depthDropdown.selection ? depthScales[depthDropdown.selection.index] : null) || 1.80;
 
-            var bgKeys = ["tahoe-dawn", "dark-studio", "midnight-deep", "sequoia-azure", "solid-charcoal", "none"];
             var selectedBgKey = (bgDropdown.selection ? bgKeys[bgDropdown.selection.index] : null) || "tahoe-dawn";
 
-            // Persist selections
             savePref("cursorStyleIdx", cursorDropdown.selection ? cursorDropdown.selection.index : 0);
-            savePref("preferSvg", radSvg.value);
+            savePref("preferSvg", radSvg.value && canUseSvg);
             savePref("cursorScalePct", sizeInput.text);
             savePref("dynamicCursorStates", chkDynamicStates.value);
             savePref("enableSway", chkSway.value);
@@ -1856,6 +2076,44 @@
             }
             buildTraceMotionRig(selectedVideoFile, selectedJsonFile, opts);
         };
+
+        // Scrollbar Layout and Mousewheel Controller
+        function updateScroll() {
+            if (!win.visible) return;
+            try {
+                win.layout.layout(true);
+                var viewH = scrollViewport.size.height;
+                var contH = contentGroup.size.height;
+                if (contH > viewH && viewH > 60) {
+                    scrollBar.visible = true;
+                    scrollBar.maxvalue = contH - viewH;
+                    scrollBar.jumpdelta = Math.min(80, Math.floor(viewH * 0.35));
+                } else {
+                    scrollBar.visible = false;
+                    contentGroup.location.y = 0;
+                    scrollBar.value = 0;
+                }
+            } catch (e) {}
+        }
+
+        win.onResizing = win.onResize = updateScroll;
+
+        scrollBar.onChanging = function () {
+            contentGroup.location.y = -Math.round(scrollBar.value);
+        };
+        scrollBar.onChange = function () {
+            contentGroup.location.y = -Math.round(scrollBar.value);
+        };
+
+        try {
+            win.addEventListener("wheel", function (e) {
+                if (scrollBar.visible) {
+                    var step = (e.deltaY !== undefined) ? e.deltaY : 25;
+                    scrollBar.value = Math.max(0, Math.min(scrollBar.maxvalue, scrollBar.value + step));
+                    contentGroup.location.y = -Math.round(scrollBar.value);
+                }
+            });
+        } catch (e) {}
 
         if (win instanceof Window) {
             win.center();
