@@ -61,6 +61,7 @@ private:
     void WorkerLoop();
     void InitializeCursorMap();
     CursorVisualType QueryCurrentCursorType() const;
+    CursorVisualType ClassifyDynamicCursor(HCURSOR hCursor) const;
     void SamplePositionAndState(InteractionType interaction);
     void FlushJsonToFile();
 
@@ -85,6 +86,7 @@ private:
 
     // Cursor tracking state
     std::unordered_map<HCURSOR, CursorVisualType> cursorMap_;
+    mutable std::unordered_map<HCURSOR, CursorVisualType> dynamicCursorCache_;
     mutable CursorVisualType lastKnownCursorType_{CursorVisualType::Arrow};
 
     // Double click detection state

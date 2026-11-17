@@ -10,6 +10,7 @@ obs-telemetry-recorder/build/CMakeConfigureLog.yaml
 # MSVC object and intermediate files
 *.obj
 *.exp
+*.lib
 *.ilk
 *.pdb
 *.idb

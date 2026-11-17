@@ -31,9 +31,11 @@ if %ERRORLEVEL% neq 0 (
     call "%VCVARS%" x64 >nul 2>&1
 )
 
-rem Prepend compiler path to avoid IDE DLL mismatch
+rem Prepend compiler and lib paths
 if exist "D:\apps\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64" (
     set "PATH=D:\apps\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.44.35207\bin\HostX64\x64;!PATH!"
+    set "INCLUDE=D:\apps\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.44.35207\include;!INCLUDE!"
+    set "LIB=D:\apps\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.44.35207\lib\x64;!LIB!"
 )
 
 rem 2. Ensure OBS import libraries exist
@@ -73,13 +75,12 @@ if not exist "build" mkdir "build"
 
 cl.exe /nologo /LD /std:c++20 /O2 /EHsc /utf-8 /Iinclude /Ideps\obs\include ^
     src\main.cpp src\telemetry_worker.cpp ^
-    /Febuild\tracemotion-obs.dll ^
-    /link /nologo /LIBPATH:deps\obs\lib obs.lib obs-frontend-api.lib winmm.lib user32.lib
+    /Febuild\tracemotion-obs.dll /Fobuild\ ^
+    /link /nologo /LIBPATH:deps\obs\lib obs.lib obs-frontend-api.lib winmm.lib user32.lib gdi32.lib
 
 if %ERRORLEVEL% neq 0 (
     echo.
     echo [ERROR] Compilation failed.
-    pause
     exit /b %ERRORLEVEL%
 )
 

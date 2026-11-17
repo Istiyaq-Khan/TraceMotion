@@ -96,7 +96,7 @@ if(DEFINED OBS_DIR)
         target_link_libraries(tracemotion-obs PRIVATE obs-frontend-api)
     endif()
 
-    target_link_libraries(tracemotion-obs PRIVATE winmm)
+    target_link_libraries(tracemotion-obs PRIVATE winmm user32 gdi32)
 else()
     # Try find_package or fallback to standard OBS SDK search
     find_package(libobs QUIET)
@@ -107,6 +107,8 @@ else()
             obs::libobs
             obs::obs-frontend-api
             winmm
+            user32
+            gdi32
         )
     else()
         message(STATUS "[TraceMotion] Standalone build: Using custom include directories.")
@@ -117,6 +119,8 @@ else()
         )
         target_link_libraries(tracemotion-obs PRIVATE
             winmm
+            user32
+            gdi32
         )
     endif()
 endif()

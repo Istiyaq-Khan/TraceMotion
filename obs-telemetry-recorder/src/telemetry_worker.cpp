@@ -8,6 +8,7 @@
 #include <iostream>
 #include <algorithm>
 #include <filesystem>
+#include <vector>
 #include <timeapi.h>
 
 #pragma comment(lib, "winmm.lib")
@@ -53,20 +54,246 @@ void TelemetryWorker::InitializeCursorMap() {
     cursorMap_[LoadCursor(nullptr, IDC_NO)]          = CursorVisualType::NotAllowed;
     cursorMap_[LoadCursor(nullptr, IDC_SIZEWE)]      = CursorVisualType::ResizeEW;
     cursorMap_[LoadCursor(nullptr, IDC_SIZENS)]      = CursorVisualType::ResizeNS;
+    cursorMap_[LoadCursor(nullptr, IDC_SIZENWSE)]    = CursorVisualType::ResizeNWSE;
+    cursorMap_[LoadCursor(nullptr, IDC_SIZENESW)]    = CursorVisualType::ResizeNESW;
     cursorMap_[LoadCursor(nullptr, IDC_SIZEALL)]     = CursorVisualType::OpenHand;
-    cursorMap_[LoadCursor(nullptr, IDC_WAIT)]        = CursorVisualType::Arrow;
-    cursorMap_[LoadCursor(nullptr, IDC_APPSTARTING)] = CursorVisualType::Arrow;
+    cursorMap_[LoadCursor(nullptr, IDC_WAIT)]        = CursorVisualType::Wait;
+    cursorMap_[LoadCursor(nullptr, IDC_APPSTARTING)] = CursorVisualType::Wait;
+    cursorMap_[LoadCursor(nullptr, IDC_HELP)]        = CursorVisualType::Help;
+}
+
+CursorVisualType TelemetryWorker::ClassifyDynamicCursor(HCURSOR hCursor) const {
+    if (!hCursor) return CursorVisualType::Arrow;
+
+    ICONINFO ii{};
+    if (!GetIconInfo(hCursor, &ii)) {
+        return CursorVisualType::Arrow;
+    }
+
+    // RAII guard ensuring GDI objects are deleted on all return paths
+    struct IconGuard {
+        HBITMAP mask{nullptr};
+        HBITMAP color{nullptr};
+        ~IconGuard() {
+            if (mask) DeleteObject(mask);
+            if (color) DeleteObject(color);
+        }
+    } guard{ii.hbmMask, ii.hbmColor};
+
+    if (!ii.hbmMask) {
+        return CursorVisualType::Arrow;
+    }
+
+    BITMAP bmMask{};
+    if (!GetObject(ii.hbmMask, sizeof(BITMAP), &bmMask) || bmMask.bmWidth <= 0 || bmMask.bmHeight <= 0) {
+        return CursorVisualType::Arrow;
+    }
+
+    const int width = bmMask.bmWidth;
+    const int height = ii.hbmColor ? bmMask.bmHeight : (bmMask.bmHeight / 2);
+    if (width <= 0 || height <= 0 || width > 256 || height > 256) {
+        return CursorVisualType::Arrow;
+    }
+
+    // Extract mask bits
+    const int maskPitch = ((width + 31) / 32) * 4;
+    std::vector<uint8_t> maskBits(maskPitch * bmMask.bmHeight, 0);
+    if (GetBitmapBits(ii.hbmMask, static_cast<LONG>(maskBits.size()), maskBits.data()) <= 0) {
+        return CursorVisualType::Arrow;
+    }
+
+    // Extract color bits if 32bpp color icon exists
+    std::vector<uint32_t> colorPixels;
+    bool hasColorAlpha = false;
+    if (ii.hbmColor) {
+        BITMAP bmColor{};
+        if (GetObject(ii.hbmColor, sizeof(BITMAP), &bmColor) && bmColor.bmBitsPixel == 32) {
+            colorPixels.resize(width * height, 0);
+            if (GetBitmapBits(ii.hbmColor, static_cast<LONG>(colorPixels.size() * sizeof(uint32_t)), colorPixels.data()) > 0) {
+                for (uint32_t px : colorPixels) {
+                    if ((px >> 24) > 16) {
+                        hasColorAlpha = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    auto isPixelVisible = [&](int x, int y) -> bool {
+        if (x < 0 || x >= width || y < 0 || y >= height) return false;
+        if (hasColorAlpha) {
+            const uint32_t px = colorPixels[y * width + x];
+            return ((px >> 24) > 20);
+        }
+        const uint8_t* row = maskBits.data() + (y * maskPitch);
+        const bool andBit = (row[x / 8] & (0x80 >> (x % 8))) != 0;
+        if (ii.hbmColor) {
+            return !andBit;
+        } else {
+            const uint8_t* xorRow = maskBits.data() + ((y + height) * maskPitch);
+            const bool xorBit = (xorRow[x / 8] & (0x80 >> (x % 8))) != 0;
+            return (!andBit || xorBit);
+        }
+    };
+
+    int minX = width, maxX = -1;
+    int minY = height, maxY = -1;
+    int visiblePixelCount = 0;
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (isPixelVisible(x, y)) {
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+                visiblePixelCount++;
+            }
+        }
+    }
+
+    if (maxX < minX || maxY < minY || visiblePixelCount < 4) {
+        return CursorVisualType::Arrow;
+    }
+
+    const int bbW = maxX - minX + 1;
+    const int bbH = maxY - minY + 1;
+    const float aspect = static_cast<float>(bbW) / static_cast<float>(bbH);
+
+    const float hxNorm = static_cast<float>(ii.xHotspot - minX) / static_cast<float>(bbW);
+    const float hyNorm = static_cast<float>(ii.yHotspot - minY) / static_cast<float>(bbH);
+
+    const int midY = minY + bbH / 2;
+    const int midX = minX + bbW / 2;
+
+    int topHalfCount = 0, bottomHalfCount = 0;
+    int leftHalfCount = 0, rightHalfCount = 0;
+    for (int y = minY; y <= maxY; ++y) {
+        for (int x = minX; x <= maxX; ++x) {
+            if (isPixelVisible(x, y)) {
+                if (y < midY) topHalfCount++;
+                else bottomHalfCount++;
+                if (x < midX) leftHalfCount++;
+                else rightHalfCount++;
+            }
+        }
+    }
+
+    const float fillRatio = static_cast<float>(visiblePixelCount) / static_cast<float>(bbW * bbH);
+
+    // 1. Text / I-Beam: Narrow vertical shape, centered hotspot
+    if (aspect <= 0.55f && hxNorm >= 0.25f && hxNorm <= 0.75f && hyNorm >= 0.25f && hyNorm <= 0.75f) {
+        return CursorVisualType::Text;
+    }
+
+    // 2. Horizontal Resize (ResizeEW): Wide aspect ratio, centered hotspot
+    if (aspect >= 1.35f && hxNorm >= 0.30f && hxNorm <= 0.70f && hyNorm >= 0.25f && hyNorm <= 0.75f) {
+        return CursorVisualType::ResizeEW;
+    }
+
+    // 3. Vertical Resize (ResizeNS): Tall aspect ratio, centered hotspot, wider tips
+    if (aspect <= 0.70f && (static_cast<float>(bbH) / static_cast<float>(bbW)) >= 1.40f &&
+        hxNorm >= 0.30f && hxNorm <= 0.70f && hyNorm >= 0.30f && hyNorm <= 0.70f) {
+        int centerRowPixels = 0;
+        int tipRowPixels = 0;
+        for (int x = minX; x <= maxX; ++x) {
+            if (isPixelVisible(x, midY)) centerRowPixels++;
+            if (isPixelVisible(x, minY + 1) || isPixelVisible(x, maxY - 1)) tipRowPixels++;
+        }
+        if (tipRowPixels > centerRowPixels * 2 || aspect > 0.45f) {
+            return CursorVisualType::ResizeNS;
+        }
+        return CursorVisualType::Text;
+    }
+
+    // 4. Pointer / Hand: Pointing finger tip at top, palm in lower half
+    if (hyNorm <= 0.22f && hxNorm >= 0.05f && hxNorm <= 0.58f &&
+        bottomHalfCount > static_cast<int>(topHalfCount * 1.3f) && aspect >= 0.55f && aspect <= 1.25f) {
+        return CursorVisualType::Pointer;
+    }
+
+    // 5. Crosshair: Symmetric in X and Y, centered hotspot
+    if (aspect >= 0.80f && aspect <= 1.25f &&
+        hxNorm >= 0.40f && hxNorm <= 0.60f && hyNorm >= 0.40f && hyNorm <= 0.60f) {
+        const float lrDiff = std::abs(static_cast<float>(leftHalfCount - rightHalfCount)) / static_cast<float>(visiblePixelCount);
+        const float tbDiff = std::abs(static_cast<float>(topHalfCount - bottomHalfCount)) / static_cast<float>(visiblePixelCount);
+        if (lrDiff < 0.15f && tbDiff < 0.15f && fillRatio < 0.40f) {
+            return CursorVisualType::Crosshair;
+        }
+    }
+
+    // 6. Diagonal Resizes (NWSE / NESW)
+    if (aspect >= 0.75f && aspect <= 1.35f &&
+        hxNorm >= 0.35f && hxNorm <= 0.65f && hyNorm >= 0.35f && hyNorm <= 0.65f) {
+        int nwPixels = 0, nePixels = 0;
+        for (int y = minY; y <= maxY; ++y) {
+            for (int x = minX; x <= maxX; ++x) {
+                if (isPixelVisible(x, y)) {
+                    if ((x < midX && y < midY) || (x > midX && y > midY)) nwPixels++;
+                    if ((x > midX && y < midY) || (x < midX && y > midY)) nePixels++;
+                }
+            }
+        }
+        if (nwPixels > static_cast<int>(nePixels * 1.8f)) {
+            return CursorVisualType::ResizeNWSE;
+        }
+        if (nePixels > static_cast<int>(nwPixels * 1.8f)) {
+            return CursorVisualType::ResizeNESW;
+        }
+    }
+
+    // 7. OpenHand / ClosedHand
+    if (aspect >= 0.70f && aspect <= 1.25f &&
+        hxNorm >= 0.30f && hxNorm <= 0.70f && hyNorm >= 0.20f && hyNorm <= 0.65f) {
+        if (fillRatio > 0.48f) {
+            return CursorVisualType::ClosedHand;
+        }
+        if (fillRatio > 0.25f) {
+            return CursorVisualType::OpenHand;
+        }
+    }
+
+    // 8. NotAllowed
+    if (aspect >= 0.85f && aspect <= 1.15f &&
+        hxNorm >= 0.40f && hxNorm <= 0.60f && hyNorm >= 0.40f && hyNorm <= 0.60f) {
+        return CursorVisualType::NotAllowed;
+    }
+
+    // 9. Standard Arrow
+    if (hxNorm <= 0.20f && hyNorm <= 0.20f) {
+        return CursorVisualType::Arrow;
+    }
+
+    return CursorVisualType::Arrow;
 }
 
 CursorVisualType TelemetryWorker::QueryCurrentCursorType() const {
     CURSORINFO ci{};
     ci.cbSize = sizeof(ci);
-    if (GetCursorInfo(&ci) && (ci.flags & CURSOR_SHOWING)) {
+    if (GetCursorInfo(&ci) && (ci.flags & CURSOR_SHOWING) && ci.hCursor != nullptr) {
+        // Fast path 1: Standard system IDC cursor handles
         auto it = cursorMap_.find(ci.hCursor);
         if (it != cursorMap_.end()) {
             lastKnownCursorType_ = it->second;
             return it->second;
         }
+
+        // Fast path 2: Dynamic handle cache (< 2ns)
+        auto dIt = dynamicCursorCache_.find(ci.hCursor);
+        if (dIt != dynamicCursorCache_.end()) {
+            lastKnownCursorType_ = dIt->second;
+            return dIt->second;
+        }
+
+        // Path 3: Inspect icon info and mask geometry
+        const CursorVisualType detected = ClassifyDynamicCursor(ci.hCursor);
+        if (dynamicCursorCache_.size() > 512) {
+            dynamicCursorCache_.clear();
+        }
+        dynamicCursorCache_[ci.hCursor] = detected;
+        lastKnownCursorType_ = detected;
+        return detected;
     }
     return lastKnownCursorType_;
 }
@@ -90,6 +317,8 @@ bool TelemetryWorker::Start(const std::string& outputPath, const DisplayCanvasGe
         std::lock_guard<std::mutex> lock(bufferMutex_);
         samples_.clear();
     }
+
+    dynamicCursorCache_.clear();
 
     isRunning_.store(true, std::memory_order_release);
     isPaused_.store(false, std::memory_order_release);
@@ -130,7 +359,6 @@ bool TelemetryWorker::Stop(uint64_t /*stopPtsNs*/, const std::string& overrideOu
 
     isRunning_.store(false, std::memory_order_release);
 
-    // Unblock the message loop on the worker thread
     const DWORD targetThreadId = workerThreadId_.load(std::memory_order_acquire);
     if (targetThreadId != 0) {
         PostThreadMessage(targetThreadId, WM_QUIT, 0, 0);
@@ -166,7 +394,7 @@ void TelemetryWorker::OnLowLevelMouseHook(WPARAM wParam, const MSLLHOOKSTRUCT& /
             interaction = InteractionType::MouseUp;
             break;
         default:
-            return; // Ignore raw move hooks here; periodic poller handles smooth trajectory
+            return;
     }
 
     SamplePositionAndState(interaction);
@@ -178,7 +406,6 @@ void TelemetryWorker::SamplePositionAndState(InteractionType interaction) {
         GetCursorPos(&pt);
     }
 
-    // Normalized relative coordinates [0.0, 1.0]
     const float denomW = (canvas_.sourceWidth > 0) ? static_cast<float>(canvas_.sourceWidth) : 1920.0f;
     const float denomH = (canvas_.sourceHeight > 0) ? static_cast<float>(canvas_.sourceHeight) : 1080.0f;
 
@@ -188,7 +415,6 @@ void TelemetryWorker::SamplePositionAndState(InteractionType interaction) {
     cx = std::clamp(cx, 0.0f, 1.0f);
     cy = std::clamp(cy, 0.0f, 1.0f);
 
-    // Compute monotonic presentation timestamp relative to recording start in milliseconds
     const uint64_t nowNs = os_gettime_ns();
     uint64_t elapsedNs = 0;
     if (nowNs > (startPtsNs_ + accumulatedPausedNs_)) {
@@ -196,7 +422,6 @@ void TelemetryWorker::SamplePositionAndState(InteractionType interaction) {
     }
     const uint32_t timeMs = static_cast<uint32_t>(elapsedNs / 1'000'000ULL);
 
-    // Handle double-click classification
     if (interaction == InteractionType::Click) {
         const float dist = std::hypot(cx - lastLeftClickCx_, cy - lastLeftClickCy_);
         if (lastLeftClickTimeMs_ > 0 &&
@@ -222,7 +447,6 @@ void TelemetryWorker::SamplePositionAndState(InteractionType interaction) {
         std::lock_guard<std::mutex> lock(bufferMutex_);
         if (!samples_.empty()) {
             const auto& prev = samples_.back();
-            // Suppress duplicate redundant samples occurring in the exact same millisecond
             if (prev.timeMs == timeMs && prev.interaction == interaction &&
                 std::abs(prev.cx - cx) < 0.0001f && std::abs(prev.cy - cy) < 0.0001f) {
                 return;
@@ -235,7 +459,6 @@ void TelemetryWorker::SamplePositionAndState(InteractionType interaction) {
 void TelemetryWorker::WorkerLoop() {
     workerThreadId_.store(GetCurrentThreadId(), std::memory_order_release);
 
-    // Ensure thread is Per-Monitor V2 DPI aware so cursor coordinates are unscaled physical screen pixels
     typedef DPI_AWARENESS_CONTEXT (WINAPI *PFN_SetThreadDpiAwarenessContext)(DPI_AWARENESS_CONTEXT);
     auto pfnSetThreadDpi = reinterpret_cast<PFN_SetThreadDpiAwarenessContext>(
         GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetThreadDpiAwarenessContext"));
@@ -243,10 +466,8 @@ void TelemetryWorker::WorkerLoop() {
         pfnSetThreadDpi(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 
-    // Request 1ms OS timer resolution for smooth frame-pacing
     timeBeginPeriod(1);
 
-    // Retrieve the DLL's own HMODULE for safe 64-bit hook installation
     HMODULE hModule = nullptr;
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                        reinterpret_cast<LPCWSTR>(&LowLevelMouseProc), &hModule);
@@ -255,17 +476,15 @@ void TelemetryWorker::WorkerLoop() {
         mouseHook_ = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, hModule, 0);
     }
 
-    constexpr uint32_t sampleIntervalMs = 1000 / DEFAULT_SAMPLE_RATE_HZ; // ~16ms for 60Hz
+    constexpr uint32_t sampleIntervalMs = 1000 / DEFAULT_SAMPLE_RATE_HZ;
     auto nextTick = std::chrono::steady_clock::now() + std::chrono::milliseconds(sampleIntervalMs);
 
-    // Track physical mouse button states for zero-drop capture
     bool wasLDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
     bool wasRDown = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
     bool wasMDown = (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
 
     MSG msg{};
     while (isRunning_.load(std::memory_order_acquire)) {
-        // Drain Win32 message queue (services WH_MOUSE_LL hook)
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) {
                 break;
@@ -279,7 +498,6 @@ void TelemetryWorker::WorkerLoop() {
         }
 
         if (!isPaused_.load(std::memory_order_acquire)) {
-            // Check button state transitions (guarantees zero missed clicks)
             const bool isLDown = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
             const bool isRDown = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
             const bool isMDown = (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
@@ -306,14 +524,12 @@ void TelemetryWorker::WorkerLoop() {
             SamplePositionAndState(interaction);
         }
 
-        // Drift-compensated sleep
         const auto now = std::chrono::steady_clock::now();
         if (now < nextTick) {
             std::this_thread::sleep_until(nextTick);
         }
         nextTick += std::chrono::milliseconds(sampleIntervalMs);
 
-        // If system lag pushed us significantly behind, resync baseline
         if (std::chrono::steady_clock::now() > nextTick + std::chrono::milliseconds(sampleIntervalMs)) {
             nextTick = std::chrono::steady_clock::now() + std::chrono::milliseconds(sampleIntervalMs);
         }
@@ -364,7 +580,6 @@ void TelemetryWorker::FlushJsonToFile() {
                 }
             }
         } catch (...) {
-            // ignore filesystem inspection exceptions
         }
     }
 
@@ -378,7 +593,6 @@ void TelemetryWorker::FlushJsonToFile() {
         return;
     }
 
-    // Produce compact, high-speed JSON matching Recordly version 2 schema with geometry calibration
     out << "{\n  \"version\": " << TELEMETRY_SCHEMA_VERSION << ",\n"
         << "  \"canvas\": {\"sourceWidth\":" << canvas_.sourceWidth
         << ",\"sourceHeight\":" << canvas_.sourceHeight

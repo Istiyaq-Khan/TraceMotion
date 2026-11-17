@@ -1,0 +1,245 @@
+================================================================================
+  TRACEMOTION: PROFESSIONAL SCREEN RECORDING & MOTION ENHANCEMENT SUITE
+  1:1 Recordly Parity Engine (Zero-Electron C++ OBS Plugin + After Effects Rig)
+================================================================================
+
+TraceMotion captures high-fidelity 60Hz/120Hz system cursor telemetry, click events,
+and real-time cursor shape classifications in OBS Studio via a native C++20 plugin,
+then reconstructs studio-grade pan/zoom motion, spring-physics cursor tracking,
+multi-state cursor rendering, and window drop-shadow framing in Adobe After Effects.
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. Prerequisites & System Requirements
+2. Installing the OBS Studio Plugin (C++ Telemetry Recorder)
+3. Installing the Adobe After Effects ScriptUI Panel & Importer
+4. Recording Workflow (OBS Studio)
+5. Importing & Motion Rig Generation (After Effects)
+6. After Effects Rig Architecture & Customization
+7. Building the OBS Plugin from Source (Developers)
+8. Troubleshooting & FAQ
+
+================================================================================
+1. PREREQUISITES & SYSTEM REQUIREMENTS
+================================================================================
+- Windows 10 or Windows 11 (64-bit)
+- OBS Studio v28.0 or newer (64-bit)
+- Adobe After Effects 2020 through 2026+ (English or localized)
+
+================================================================================
+2. INSTALLING THE OBS STUDIO PLUGIN (C++ TELEMETRY RECORDER)
+================================================================================
+The compiled native 64-bit plugin is located at:
+  obs-telemetry-recorder\build\tracemotion-obs.dll
+
+Step 1: Close OBS Studio if it is currently running.
+
+Step 2: Copy the plugin DLL:
+  Copy:
+    D:\all my code\TraceMotion\obs-telemetry-recorder\build\tracemotion-obs.dll
+  To:
+    C:\Program Files\obs-studio\obs-plugins\64bit\tracemotion-obs.dll
+
+Step 3: Copy the plugin localization data:
+  Copy the folder:
+    D:\all my code\TraceMotion\obs-telemetry-recorder\data\
+  To:
+    C:\Program Files\obs-studio\data\obs-plugins\tracemotion-obs\
+
+  (Create the "tracemotion-obs" folder inside "data\obs-plugins" if it does not exist.
+   Ensure "en-US.ini" is located at:
+   C:\Program Files\obs-studio\data\obs-plugins\tracemotion-obs\locale\en-US.ini)
+
+Step 4: Launch OBS Studio.
+  - In OBS Studio, open the top menu: "Tools" -> "TraceMotion Telemetry Recorder".
+  - Check "Enable Telemetry Recording".
+  - Set "Sampling Rate" to 60 Hz (standard) or 120 Hz (ultra-smooth).
+  - Leave "Output Directory" empty to automatically save JSON files alongside your
+    OBS video recordings, or browse to a custom folder.
+
+================================================================================
+3. INSTALLING THE AFTER EFFECTS SCRIPTUI PANEL & IMPORTER
+================================================================================
+The After Effects script and its assets are located in:
+  after-effects-importer\
+
+Step 1: Locate your After Effects "ScriptUI Panels" directory:
+  Typical path:
+    C:\Program Files\Adobe\Adobe After Effects <Version>\Support Files\Scripts\ScriptUI Panels\
+
+Step 2: Copy the script and assets folder:
+  Copy:
+    after-effects-importer\TraceMotionImporter.jsx
+  And the folder:
+    after-effects-importer\assets\   (containing 'cursors' and 'wallpapers')
+  Into:
+    C:\Program Files\Adobe\Adobe After Effects <Version>\Support Files\Scripts\ScriptUI Panels\TraceMotion\
+
+  Folder structure should look like:
+    ScriptUI Panels\
+      TraceMotion\
+        TraceMotionImporter.jsx
+        assets\
+          cursors\
+            manifest.json
+            macos\
+            windows11\
+            tahoe\
+            custom\
+          wallpapers\
+            manifest.json
+            (39 wallpaper image and video files)
+
+  NOTE: You can also keep the files directly in `D:\all my code\TraceMotion\after-effects-importer\`
+  and run it via AE menu: "File" -> "Scripts" -> "Run Script File...".
+
+Step 3: Enable Scripting Permissions in After Effects:
+  - Open Adobe After Effects.
+  - Go to: "Edit" -> "Preferences" -> "Scripting & Expressions..."
+    (In older versions: "Edit" -> "Preferences" -> "General").
+  - Check the box: "Allow Scripts to Write Files and Access Network".
+  - Click OK.
+
+Step 4: Dock the Panel:
+  - In After Effects, open the top menu: "Window" -> "TraceMotionImporter.jsx".
+  - Dock the TraceMotion panel anywhere in your After Effects workspace (e.g. alongside
+    Effects & Presets or Composition preview).
+  - The panel features a responsive dark-studio interface with smooth mouse-wheel
+    scrolling and live SVG vector previews.
+
+================================================================================
+4. RECORDING WORKFLOW (OBS STUDIO)
+================================================================================
+1. Launch OBS Studio. Ensure your screen or window capture source is configured.
+2. Start Recording (click "Start Recording" or your assigned hotkey).
+   - TraceMotion will silently record high-precision cursor position, click events,
+     press/release timestamps, and classified cursor shapes.
+3. Perform your workflow, software demo, or tutorial normally.
+4. Stop Recording.
+5. In your recording folder, you will see two synchronized files:
+   - Video: `2026-11-18 02-30-00.mp4` (or .mkv)
+   - Telemetry: `2026-11-18 02-30-00.tracemotion.json`
+
+================================================================================
+5. IMPORTING & MOTION RIG GENERATION (AFTER EFFECTS)
+================================================================================
+1. Open the TraceMotion panel in After Effects ("Window" -> "TraceMotionImporter.jsx").
+2. Source Files:
+   - Click "Browse..." next to Video File and select your recorded video.
+   - Click "Browse..." next to Telemetry JSON. If the JSON file has the same name and
+     directory as the video, TraceMotion auto-detects it.
+3. Canvas & Framing:
+   - Select Canvas Preset:
+     * 1080p (1920x1080 @ 60fps) - Standard YouTube / Web
+     * 4K UHD (3840x2160 @ 60fps) - Ultra High Definition
+     * 9:16 Vertical (1080x1920 @ 60fps) - TikTok / Shorts / Reels
+     * Custom resolution & framerate
+   - Select Wallpaper: Choose from 39 bundled studio backgrounds (Dark Studio,
+     Cosmic, Gradient, Mesh, Sequoia, Sonoma, Ventura, abstracts, or transparent).
+4. Camera & Zoom Engine:
+   - Zoom Scale: 1.0x to 3.0x (Default: 1.8x)
+   - Dwell Time Threshold: 400ms to 2000ms (Default: 800ms)
+   - Auto-Pan Easing: Cubic Bézier / Spring
+5. Cursor & VFX:
+   - Cursor Pack: macOS, Windows 11, Tahoe, or Custom
+   - Cursor Size: 50% to 200% (Default: 100%)
+   - Motion Blur: Toggle Shutter Angle (180 deg)
+   - Click Ripple Animation: Toggle expanding rings on mouse clicks
+6. Click "Generate Motion Comp".
+   - TraceMotion creates a dedicated project folder, imports assets, builds the
+     multi-layer camera rig, calculates spring physics, sets hold keyframes for
+     cursor states, places calibrated click ripples, and prepares the composition.
+
+================================================================================
+6. AFTER EFFECTS RIG ARCHITECTURE & CUSTOMIZATION
+================================================================================
+TraceMotion generates an industry-standard non-destructive layer hierarchy:
+
+Layer Hierarchy:
+----------------
+1. TraceMotion_Camera_Controller (Null)
+   - Contains live Expression Sliders for instant post-import tuning:
+     * "Zoom Scale" (controls global zoom depth)
+     * "Smoothness" (adjusts pan speed & spring easing)
+     * "Corner Radius" (live window corner roundness)
+     * "Shadow Opacity" (live shadow darkness)
+     * "Cursor Scale" (live cursor size multiplier)
+2. TraceMotion_Camera_Rig (3D Master Null)
+   - Drives all synchronous pan and zoom motion for the window, shadows, video,
+     cursor master, and ripples.
+3. TraceMotion_Click_Ripples (Shape Layer parented to Rig)
+   - Generates expanding color rings at exact click hotspots with ease-out opacity.
+4. Cursor State Layers (parented to TraceMotion_Cursor_Master)
+   - "Cursor_arrow", "Cursor_pointer", "Cursor_text", "Cursor_crosshair",
+     "Cursor_resize-ew", "Cursor_resize-ns", "Cursor_open-hand",
+     "Cursor_closed-hand", "Cursor_not-allowed", "Cursor_wait"
+   - Each state layer has its anchor point calibrated to its exact pixel hotspot.
+   - State switching is achieved via clean Hold Keyframes on layer Opacity.
+5. TraceMotion_Cursor_Master (Null parented to Rig)
+   - Carries spring-interpolated position coordinates.
+   - Evaluates dynamic velocity-based sway rotation expressions.
+   - Evaluates click depression bounce scale curves.
+6. Clean_Screen_Capture (Video Footage parented to Rig)
+   - The raw screen recording footage.
+   - Track Matte: Set to Alpha Matte using "TraceMotion_Window_Matte".
+7. TraceMotion_Window_Matte (Shape Layer parented to Rig)
+   - Rounded rectangle vector mask matching exact video dimensions.
+   - Roundness linked dynamically to the Controller's "Corner Radius" slider.
+   - Fixed anchor point and coordinate origin prevents 1/4 screen clipping bugs.
+8. TraceMotion_Window_Shadow (Shape Layer parented to Rig)
+   - Independent 3-tier drop shadow system (Contact, Body, Ambient) placed behind
+     the video. Shadows remain completely unclipped by the video's track matte.
+9. TraceMotion_Background (Image/Video Layer)
+   - Automatically scaled to fill the entire canvas with "cover" aspect-ratio fit.
+
+================================================================================
+7. BUILDING THE OBS PLUGIN FROM SOURCE (DEVELOPERS)
+================================================================================
+To modify or rebuild `tracemotion-obs.dll`:
+1. Ensure Visual Studio 2022 (or VS 2026/Build Tools) with "Desktop development with C++"
+   and the Windows 10/11 SDK is installed.
+2. Open a standard Command Prompt (cmd.exe) or PowerShell.
+3. Navigate to:
+   cd "D:\all my code\TraceMotion\obs-telemetry-recorder"
+4. Run:
+   build.bat
+5. The automated script will:
+   - Initialize the MSVC x64 compiler environment.
+   - Verify OBS import definitions (`obs.lib`, `obs-frontend-api.lib`).
+   - Compile `src\main.cpp` and `src\telemetry_worker.cpp` with C++20 Release optimizations.
+   - Link `user32.lib`, `gdi32.lib`, and `winmm.lib`.
+   - Output `build\tracemotion-obs.dll`.
+
+================================================================================
+8. TROUBLESHOOTING & FAQ
+================================================================================
+Q: The After Effects panel gives an error: "Unable to execute script at line 1.
+   Access to files is not allowed."
+A: Go to AE "Edit" -> "Preferences" -> "Scripting & Expressions" and check
+   "Allow Scripts to Write Files and Access Network".
+
+Q: The screen capture looks zoomed into the top-left quadrant (1/4 screen).
+A: This bug occurred in legacy importer versions due to mismatched shape anchor
+   coordinates. Ensure you are using the updated `TraceMotionImporter.jsx` which
+   sets `matteLayer.anchorPoint = [0, 0]` and `matteLayer.position = [w/2, h/2]`.
+
+Q: Cursor states in the recording do not change (always shows Arrow).
+A: Verify that you installed the newly built `tracemotion-obs.dll` into
+   `C:\Program Files\obs-studio\obs-plugins\64bit\`. The hybrid geometric classifier
+   in `telemetry_worker.cpp` detects custom browser cursors, text I-beams, hand pointers,
+   and resize handles dynamically at 60Hz/120Hz across all Windows DPI scaling levels.
+
+Q: Click ripples appear off-target.
+A: The updated importer calculates click coordinates using normalized viewport ratios
+   multiplied by the composition footage dimensions, anchored directly inside the
+   shape vector transform group. Ensure your OBS source matches your screen resolution.
+
+Q: Can I use custom wallpapers or cursor packs?
+A: Yes!
+   - Wallpapers: Place `.png`, `.jpg`, or `.mp4` files into `assets\wallpapers\` and
+     add them to `manifest.json`.
+   - Cursors: Add custom PNG cursor states into `assets\cursors\<pack_name>\` and
+     define their pixel hotspots in `assets\cursors\manifest.json`.
+
+================================================================================

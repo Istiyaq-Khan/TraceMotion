@@ -1,0 +1,280 @@
+{
+  "generatedAt": "2026-11-17T19:38:30.381Z",
+  "count": 39,
+  "defaultWallpaper": "tahoe-light.jpg",
+  "wallpapers": [
+    {
+      "id": "tahoe-light",
+      "filename": "tahoe-light.jpg",
+      "label": "Tahoe Light",
+      "category": "Tahoe",
+      "isVideo": false
+    },
+    {
+      "id": "tahoe-dark",
+      "filename": "tahoe-dark.jpg",
+      "label": "Tahoe Dark",
+      "category": "Tahoe",
+      "isVideo": false
+    },
+    {
+      "id": "bluerays",
+      "filename": "bluerays.jpeg",
+      "label": "Blue Rays",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "cherrypop",
+      "filename": "cherrypop.jpg",
+      "label": "Cherry Pop",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "cityscape",
+      "filename": "cityscape.jpg",
+      "label": "Cityscape",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "energy-17",
+      "filename": "energy-17.jpg",
+      "label": "Energy 17",
+      "category": "Abstract",
+      "isVideo": false
+    },
+    {
+      "id": "energy-19",
+      "filename": "energy-19.jpg",
+      "label": "Energy 19",
+      "category": "Abstract",
+      "isVideo": false
+    },
+    {
+      "id": "farmvalley",
+      "filename": "farmvalley.jpg",
+      "label": "Farm Valley",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "glassmorphism-3",
+      "filename": "glassmorphism-3.jpg",
+      "label": "Glassmorphism 3",
+      "category": "Abstract",
+      "isVideo": false
+    },
+    {
+      "id": "glassmorphism-4",
+      "filename": "glassmorphism-4.jpg",
+      "label": "Glassmorphism 4",
+      "category": "Abstract",
+      "isVideo": false
+    },
+    {
+      "id": "ipad-17-dark",
+      "filename": "ipad-17-dark.jpg",
+      "label": "iPad 17 Dark",
+      "category": "macOS",
+      "isVideo": false
+    },
+    {
+      "id": "ipad-17-light",
+      "filename": "ipad-17-light.jpg",
+      "label": "iPad 17 Light",
+      "category": "macOS",
+      "isVideo": false
+    },
+    {
+      "id": "iridescent-9",
+      "filename": "iridescent-9.jpg",
+      "label": "Iridescent 9",
+      "category": "Abstract",
+      "isVideo": false
+    },
+    {
+      "id": "lemonade",
+      "filename": "lemonade.jpeg",
+      "label": "Lemonade",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "levels",
+      "filename": "levels.jpg",
+      "label": "Levels",
+      "category": "Abstract",
+      "isVideo": false
+    },
+    {
+      "id": "luisdelrio",
+      "filename": "luisdelrio.jpg",
+      "label": "Luis Del Rio",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "midnight-8",
+      "filename": "midnight-8.jpg",
+      "label": "Midnight 8",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "mountaintrees",
+      "filename": "mountaintrees.jpg",
+      "label": "Mountain Trees",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "sequoia-blue",
+      "filename": "sequoia-blue.jpg",
+      "label": "Sequoia Blue",
+      "category": "macOS",
+      "isVideo": false
+    },
+    {
+      "id": "sequoia-blue-orange",
+      "filename": "sequoia-blue-orange.jpg",
+      "label": "Sequoia Blue Orange",
+      "category": "macOS",
+      "isVideo": false
+    },
+    {
+      "id": "sonoma-clouds",
+      "filename": "sonoma-clouds.jpg",
+      "label": "Sonoma Clouds",
+      "category": "Sonoma",
+      "isVideo": false
+    },
+    {
+      "id": "sonoma-dark",
+      "filename": "sonoma-dark.jpg",
+      "label": "Sonoma Dark",
+      "category": "Sonoma",
+      "isVideo": false
+    },
+    {
+      "id": "sonoma-evening",
+      "filename": "sonoma-evening.jpg",
+      "label": "Sonoma Evening",
+      "category": "Sonoma",
+      "isVideo": false
+    },
+    {
+      "id": "sonoma-horizon",
+      "filename": "sonoma-horizon.jpg",
+      "label": "Sonoma Horizon",
+      "category": "Sonoma",
+      "isVideo": false
+    },
+    {
+      "id": "sonoma-light",
+      "filename": "sonoma-light.jpg",
+      "label": "Sonoma Light",
+      "category": "Sonoma",
+      "isVideo": false
+    },
+    {
+      "id": "ventura",
+      "filename": "ventura.jpg",
+      "label": "Ventura",
+      "category": "macOS",
+      "isVideo": false
+    },
+    {
+      "id": "ventura-dark",
+      "filename": "ventura-dark.jpg",
+      "label": "Ventura Dark",
+      "category": "macOS",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper1",
+      "filename": "wallpaper1.jpg",
+      "label": "Wallpaper 1",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper10",
+      "filename": "wallpaper10.jpg",
+      "label": "Wallpaper 10",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper11",
+      "filename": "wallpaper11.jpg",
+      "label": "Wallpaper 11",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper12",
+      "filename": "wallpaper12.jpg",
+      "label": "Wallpaper 12",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper13",
+      "filename": "wallpaper13.jpg",
+      "label": "Wallpaper 13",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper15",
+      "filename": "wallpaper15.jpg",
+      "label": "Wallpaper 15",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper2",
+      "filename": "wallpaper2.jpg",
+      "label": "Wallpaper 2",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper3",
+      "filename": "wallpaper3.jpg",
+      "label": "Wallpaper 3",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper4",
+      "filename": "wallpaper4.jpg",
+      "label": "Wallpaper 4",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper7",
+      "filename": "wallpaper7.jpg",
+      "label": "Wallpaper 7",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wallpaper9",
+      "filename": "wallpaper9.jpg",
+      "label": "Wallpaper 9",
+      "category": "Photography",
+      "isVideo": false
+    },
+    {
+      "id": "wispysky",
+      "filename": "wispysky.mp4",
+      "label": "Wispy Sky",
+      "category": "Motion",
+      "isVideo": true
+    }
+  ]
+}

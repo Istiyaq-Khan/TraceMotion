@@ -41,7 +41,11 @@ enum class CursorVisualType : uint8_t {
     ClosedHand = 5,
     ResizeEW = 6,
     ResizeNS = 7,
-    NotAllowed = 8
+    ResizeNWSE = 8,
+    ResizeNESW = 9,
+    NotAllowed = 10,
+    Wait = 11,
+    Help = 12
 };
 
 inline constexpr std::string_view ToString(CursorVisualType type) noexcept {
@@ -54,7 +58,11 @@ inline constexpr std::string_view ToString(CursorVisualType type) noexcept {
         case CursorVisualType::ClosedHand: return "closed-hand";
         case CursorVisualType::ResizeEW: return "resize-ew";
         case CursorVisualType::ResizeNS: return "resize-ns";
+        case CursorVisualType::ResizeNWSE: return "resize-nwse";
+        case CursorVisualType::ResizeNESW: return "resize-nesw";
         case CursorVisualType::NotAllowed: return "not-allowed";
+        case CursorVisualType::Wait: return "wait";
+        case CursorVisualType::Help: return "help";
         default: return "arrow";
     }
 }
