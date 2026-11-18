@@ -14,8 +14,31 @@
     "use strict";
 
     // =========================================================================
-    // ExtendScript Polyfills & Helper Utilities
+    // ExtendScript Polyfills & Helper Utilities (ES3 Compatible)
     // =========================================================================
+    if (!Object.keys) {
+        Object.keys = function (obj) {
+            var keys = [];
+            for (var prop in obj) {
+                if (Object.prototype.hasOwnProperty.call(obj, prop)) {
+                    keys.push(prop);
+                }
+            }
+            return keys;
+        };
+    }
+
+    function getObjectKeys(obj) {
+        if (!obj) return [];
+        var keys = [];
+        for (var prop in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, prop)) {
+                keys.push(prop);
+            }
+        }
+        return keys;
+    }
+
     if (!Array.prototype.indexOf) {
         Array.prototype.indexOf = function (searchElement, fromIndex) {
             var k;
@@ -453,7 +476,9 @@
         } catch (e) {}
 
         searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/" + style.folder + "/");
-        searchDirs.push(Folder.userData.fsName + "/Adobe/After Effects/TraceMotion/assets/cursors/" + style.folder + "/");
+        if (typeof Folder !== "undefined" && Folder.userData && Folder.userData.fsName) {
+            searchDirs.push(Folder.userData.fsName + "/Adobe/After Effects/TraceMotion/assets/cursors/" + style.folder + "/");
+        }
 
         for (var d = 0; d < searchDirs.length; d++) {
             var baseDir = searchDirs[d];
@@ -546,7 +571,9 @@
         } catch (e) {}
 
         searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/wallpapers/" + filename);
-        searchDirs.push(Folder.userData.fsName + "/Adobe/After Effects/TraceMotion/assets/wallpapers/" + filename);
+        if (typeof Folder !== "undefined" && Folder.userData && Folder.userData.fsName) {
+            searchDirs.push(Folder.userData.fsName + "/Adobe/After Effects/TraceMotion/assets/wallpapers/" + filename);
+        }
 
         for (var d = 0; d < searchDirs.length; d++) {
             var f = new File(searchDirs[d]);
@@ -819,18 +846,18 @@
             var s = rawSamples[i];
             var it = s.interactionType;
             if (it === "click" || it === "double-click") {
-                for (var j = i + 1; j < rawSamples.length && (rawSamples[j].timeMs - s.timeMs) <= 3000; j++) {
+                for (var j = i + 1; j < rawSamples.length && (rawSamples[j].timeMs - s.timeMs) <= 4000; j++) {
                     var candidate = rawSamples[j];
                     if (candidate.interactionType === "mouseup") {
                         var dragDuration = candidate.timeMs - s.timeMs;
                         var dragDx = Math.abs(candidate.cx - s.cx);
                         var dragDy = Math.abs(candidate.cy - s.cy);
                         var dragDist = Math.sqrt(dragDx * dragDx + dragDy * dragDy);
-                        if (dragDuration >= 140 && dragDist > 0.015) {
+                        if (dragDuration >= 120 && dragDist > 0.012) {
                             dragIntervals.push({
                                 startMs: s.timeMs,
                                 endMs: candidate.timeMs,
-                                isText: dragDx > dragDy * 1.6 || s.cursorType === "text"
+                                isText: dragDx > dragDy * 1.4 || s.cursorType === "text"
                             });
                         }
                         break;
@@ -839,55 +866,62 @@
             }
         }
 
-        // Add intervals where cursorType is "text" (I-beam in motion selecting text)
+        // Text selection motion runs (I-beam moving horizontally across text)
         var textRunStart = -1;
+        var textRunStartPos = null;
         for (var k = 0; k < rawSamples.length; k++) {
             var smp = rawSamples[k];
             if (smp.cursorType === "text") {
-                if (textRunStart < 0) textRunStart = smp.timeMs;
+                if (textRunStart < 0) {
+                    textRunStart = smp.timeMs;
+                    textRunStartPos = [smp.cx, smp.cy];
+                }
             } else {
-                if (textRunStart >= 0) {
-                    if (rawSamples[k - 1].timeMs - textRunStart >= 180) {
+                if (textRunStart >= 0 && textRunStartPos) {
+                    var lastS = rawSamples[k - 1];
+                    var tDur = lastS.timeMs - textRunStart;
+                    var tDx = Math.abs(lastS.cx - textRunStartPos[0]);
+                    var tDy = Math.abs(lastS.cy - textRunStartPos[1]);
+                    // Only treat as drag if there is genuine horizontal displacement across text
+                    if (tDur >= 200 && tDx > 0.02 && tDx > tDy * 1.4) {
                         dragIntervals.push({
                             startMs: textRunStart,
-                            endMs: rawSamples[k - 1].timeMs,
+                            endMs: lastS.timeMs,
                             isText: true
                         });
                     }
                     textRunStart = -1;
+                    textRunStartPos = null;
                 }
             }
         }
-        if (textRunStart >= 0 && rawSamples.length > 0) {
-            dragIntervals.push({
-                startMs: textRunStart,
-                endMs: rawSamples[rawSamples.length - 1].timeMs,
-                isText: true
-            });
-        }
 
-        // 2. Detect typing intervals (text-field click followed by dwell)
+        // 2. Detect typing intervals (click into text field followed by stationary dwell)
         for (var c = 0; c < rawSamples.length; c++) {
             var clickS = rawSamples[c];
-            if (clickS.interactionType === "click" || clickS.cursorType === "text") {
-                var windowEnd = Math.min(totalMs, clickS.timeMs + 6000);
+            if ((clickS.interactionType === "click" || clickS.interactionType === "double-click") && clickS.cursorType === "text") {
+                var windowEnd = Math.min(totalMs, clickS.timeMs + 8000);
                 var maxDisp = 0;
                 var lastStationaryMs = clickS.timeMs;
                 for (var w = c + 1; w < rawSamples.length && rawSamples[w].timeMs <= windowEnd; w++) {
                     var sMove = rawSamples[w];
                     var d = Math.sqrt(Math.pow(sMove.cx - clickS.cx, 2) + Math.pow(sMove.cy - clickS.cy, 2));
                     if (d > maxDisp) maxDisp = d;
-                    if (maxDisp > 0.03) break;
+                    if (maxDisp > 0.025) break; // User moved mouse away, typing session finished
                     lastStationaryMs = sMove.timeMs;
                 }
                 var typingDur = lastStationaryMs - clickS.timeMs;
-                if (typingDur >= 700) {
+                if (typingDur >= 1000) {
                     typingIntervals.push({
                         startMs: clickS.timeMs,
                         endMs: lastStationaryMs,
                         cx: clickS.cx,
                         cy: clickS.cy
                     });
+                    // Advance c past this typing block to avoid duplicates
+                    while (c < rawSamples.length - 1 && rawSamples[c + 1].timeMs <= lastStationaryMs) {
+                        c++;
+                    }
                 }
             }
         }
@@ -1254,8 +1288,8 @@
             var cameraRig = comp.layers.addNull();
             cameraRig.name = "TraceMotion_Camera_Rig";
             cameraRig.guideLayer = true;
-            cameraRig.transform.anchorPoint.setValue([footageW / 2, footageH / 2]);
-            cameraRig.transform.position.setValue([compW / 2, compH / 2]);
+            cameraRig.transform.anchorPoint.setValue([0, 0]);
+            cameraRig.transform.position.setValue([0, 0]);
 
             // 7. Create Master Camera Controller Null (Exposes User Tuning Sliders)
             var controller = comp.layers.addNull();
@@ -1277,11 +1311,10 @@
             controller.effect("Cursor Sway")("Slider").setValue(options.swayAmount !== undefined ? options.swayAmount : 0.4);
             controller.effect("Camera Focus")("Point").setValue([footageW / 2, footageH / 2]);
 
-            // Connect Camera Rig Null transforms to Camera Controller
-            cameraRig.transform.anchorPoint.expression =
-                "thisComp.layer('" + controller.name + "').effect('Camera Focus')('Point');";
-            cameraRig.transform.position.expression =
-                "[thisComp.width / 2, thisComp.height / 2];";
+            // Connect Camera Rig Null transforms to Camera Controller (Recordly 1:1 Monotonic Straight-Line Focus)
+            var maxZoomFactor = Math.max(1.0, (options.zoomDepthScale || 1.8));
+            var maxZoomDeltaVal = Math.max(1.0, (maxZoomFactor - 1.0) * 100.0);
+
             cameraRig.transform.scale.expression =
                 "var ctrl = thisComp.layer('" + controller.name + "');\n" +
                 "var z = ctrl.effect('Zoom Scale')('Slider');\n" +
@@ -1290,12 +1323,28 @@
                 "var s = base * (z / 100.0);\n" +
                 "[s, s];";
 
+            cameraRig.transform.position.expression =
+                "var ctrl = thisComp.layer('" + controller.name + "');\n" +
+                "var z = ctrl.effect('Zoom Scale')('Slider');\n" +
+                "var m = ctrl.effect('Canvas Margin')('Slider');\n" +
+                "var focus = ctrl.effect('Camera Focus')('Point');\n" +
+                "var base = 1.0 - Math.min(0.4, m / 100.0);\n" +
+                "var curScale = base * (z / 100.0);\n" +
+                "var stageCenterX = thisComp.width / 2;\n" +
+                "var stageCenterY = thisComp.height / 2;\n" +
+                "var fW = " + footageW + ";\n" +
+                "var fH = " + footageH + ";\n" +
+                "var centerPt = [fW / 2, fH / 2];\n" +
+                "var progress = Math.max(0.0, Math.min(1.0, (z - 100.0) / " + maxZoomDeltaVal.toFixed(1) + "));\n" +
+                "var targetFocus = [centerPt[0] + (focus[0] - centerPt[0]) * progress, centerPt[1] + (focus[1] - centerPt[1]) * progress];\n" +
+                "[stageCenterX - targetFocus[0] * curScale, stageCenterY - targetFocus[1] * curScale];";
+
             // 8. Create Window Drop Shadow Layer (Underneath Video, Never Clipped by Track Matte!)
             var shadowLayer = comp.layers.addShape();
             shadowLayer.name = "TraceMotion_Window_Shadow";
             shadowLayer.parent = cameraRig;
             shadowLayer.transform.anchorPoint.setValue([0, 0]);
-            shadowLayer.transform.position.setValue([footageW / 2, footageH / 2]);
+            shadowLayer.transform.position.setValue([0, 0]);
             shadowLayer.transform.scale.setValue([100, 100]);
 
             var shRoot = shadowLayer.property("ADBE Root Vectors Group");
@@ -1305,7 +1354,7 @@
 
             var shRect = shVecs.addProperty("ADBE Vector Shape - Rect");
             shRect.property("ADBE Vector Rect Size").setValue([footageW, footageH]);
-            shRect.property("ADBE Vector Rect Position").setValue([0, 0]);
+            shRect.property("ADBE Vector Rect Position").setValue([footageW / 2, footageH / 2]);
             shRect.property("ADBE Vector Rect Roundness").expression =
                 "thisComp.layer('" + controller.name + "').effect('Corner Radius')('Slider');";
 
@@ -1343,8 +1392,8 @@
             var videoLayer = comp.layers.add(footageItem);
             videoLayer.name = "Clean_Screen_Capture";
             videoLayer.parent = cameraRig;
-            videoLayer.transform.anchorPoint.setValue([footageW / 2, footageH / 2]);
-            videoLayer.transform.position.setValue([footageW / 2, footageH / 2]);
+            videoLayer.transform.anchorPoint.setValue([0, 0]);
+            videoLayer.transform.position.setValue([0, 0]);
             videoLayer.transform.scale.setValue([100, 100]);
 
             // Apply 2.0x Time Remapping during typing intervals if enabled
@@ -1381,8 +1430,22 @@
             matteLayer.name = "TraceMotion_Window_Matte";
             matteLayer.parent = cameraRig;
             matteLayer.transform.anchorPoint.setValue([0, 0]);
-            matteLayer.transform.position.setValue([footageW / 2, footageH / 2]);
+            matteLayer.transform.position.setValue([0, 0]);
             matteLayer.transform.scale.setValue([100, 100]);
+
+            var mRoot = matteLayer.property("ADBE Root Vectors Group");
+            var mGrp = mRoot.addProperty("ADBE Vector Group");
+            mGrp.name = "Window Matte Shape";
+            var mVecs = mGrp.property("ADBE Vectors Group");
+
+            var mRect = mVecs.addProperty("ADBE Vector Shape - Rect");
+            mRect.property("ADBE Vector Rect Size").setValue([footageW, footageH]);
+            mRect.property("ADBE Vector Rect Position").setValue([footageW / 2, footageH / 2]);
+            mRect.property("ADBE Vector Rect Roundness").expression =
+                "thisComp.layer('" + controller.name + "').effect('Corner Radius')('Slider');";
+
+            var mFill = mVecs.addProperty("ADBE Vector Graphic - Fill");
+            mFill.property("ADBE Vector Fill Color").setValue([1.0, 1.0, 1.0, 1.0]);
 
             var mRoot = matteLayer.property("ADBE Root Vectors Group");
             var mGrp = mRoot.addProperty("ADBE Vector Group");
@@ -1496,7 +1559,7 @@
                     var focusPt = [cluster.cx * footageW, cluster.cy * footageH];
 
                     controller.effect("Zoom Scale")("Slider").setValueAtTime(tStart, 100);
-                    controller.effect("Camera Focus")("Point").setValueAtTime(tStart, [footageW / 2, footageH / 2]);
+                    controller.effect("Camera Focus")("Point").setValueAtTime(tStart, focusPt);
 
                     controller.effect("Zoom Scale")("Slider").setValueAtTime(tInEnd, targetZoomScale * 100);
                     controller.effect("Camera Focus")("Point").setValueAtTime(tInEnd, focusPt);
@@ -1505,7 +1568,7 @@
                     controller.effect("Camera Focus")("Point").setValueAtTime(tOutStart, focusPt);
 
                     controller.effect("Zoom Scale")("Slider").setValueAtTime(tEnd, 100);
-                    controller.effect("Camera Focus")("Point").setValueAtTime(tEnd, [footageW / 2, footageH / 2]);
+                    controller.effect("Camera Focus")("Point").setValueAtTime(tEnd, focusPt);
                 }
 
                 var zProp = controller.effect("Zoom Scale")("Slider");
@@ -1588,8 +1651,9 @@
             }
             for (var ck = 1; ck <= masterPosProp.numKeys; ck++) {
                 try {
-                    masterPosProp.setSpatialContinuousAtKey(ck, true);
-                    masterPosProp.setSpatialAutoBezierAtKey(ck, true);
+                    masterPosProp.setSpatialContinuousAtKey(ck, false);
+                    masterPosProp.setSpatialAutoBezierAtKey(ck, false);
+                    masterPosProp.setInterpolationTypeAtKey(ck, KeyframeInterpolationType.LINEAR);
                 } catch (e) {}
             }
 
@@ -1669,8 +1733,8 @@
                 cLayer.transform.opacity.setValueAtTime(0, (stateName === "arrow") ? 100.0 : 0.0);
             }
 
-            // Dynamic State Switching via Opacity Hold Keyframes
-            if (options.enableAutoStates !== false && Object.keys(cursorStateLayers).length > 1) {
+            // Dynamic State Switching via Opacity Hold Keyframes (ES3 Safe)
+            if (options.enableAutoStates !== false && getObjectKeys(cursorStateLayers).length > 1) {
                 var stateRuns = [];
                 var currentRunState = rawSamples[0].cursorType || "arrow";
                 var currentRunStart = rawSamples[0].timeMs;
@@ -1847,7 +1911,8 @@
     // Responsive ScriptUI Studio Panel (1:1 with tracemotion_studio_ui_ux_prototype.html)
     // =========================================================================
     function buildUI(thisObj) {
-        var win = (thisObj instanceof Panel)
+        var isPanel = (thisObj instanceof Panel) || (thisObj && typeof thisObj.toString === "function" && thisObj.toString().indexOf("Panel") >= 0);
+        var win = isPanel
             ? thisObj
             : new Window("palette", "TraceMotion Studio", undefined, { resizeable: true });
 
@@ -1910,10 +1975,11 @@
             statusTxt.graphics.foregroundColor = statusTxt.graphics.newPen(statusTxt.graphics.PenType.SOLID_COLOR, stCol, 1);
         } catch (e) {}
 
-        // 2. Interactive Composition Preview Stage (130px height)
+        // 2. Interactive Composition Preview Stage (Compact 96px height)
         var previewStage = win.add("panel", undefined, undefined, { borderStyle: "none" });
-        previewStage.preferredSize = [-1, 128];
-        previewStage.minimumSize = [-1, 90];
+        previewStage.preferredSize = [-1, 96];
+        previewStage.minimumSize = [-1, 75];
+        previewStage.maximumSize = [-1, 110];
         previewStage.alignment = ["fill", "top"];
 
         var currentBgKey = getPref("selectedBgKey", "tahoe-light.jpg");
@@ -2083,7 +2149,7 @@
         // Container holding the 3 Tab Panels
         var tabContainer = win.add("group");
         tabContainer.orientation = "column";
-        tabContainer.alignment = ["fill", "fill"];
+        tabContainer.alignment = ["fill", "top"];
         tabContainer.alignChildren = ["fill", "top"];
         tabContainer.spacing = 0;
         tabContainer.margins = 0;
@@ -2093,9 +2159,9 @@
         // =====================================================================
         var tabSetup = tabContainer.add("group");
         tabSetup.orientation = "column";
-        tabSetup.alignment = ["fill", "fill"];
+        tabSetup.alignment = ["fill", "top"];
         tabSetup.alignChildren = ["fill", "top"];
-        tabSetup.spacing = 8;
+        tabSetup.spacing = 6;
         tabSetup.margins = [0, 4, 0, 4];
 
         // Capture Source Card
@@ -2266,9 +2332,9 @@
         // =====================================================================
         var tabCursor = tabContainer.add("group");
         tabCursor.orientation = "column";
-        tabCursor.alignment = ["fill", "fill"];
+        tabCursor.alignment = ["fill", "top"];
         tabCursor.alignChildren = ["fill", "top"];
-        tabCursor.spacing = 8;
+        tabCursor.spacing = 6;
         tabCursor.margins = [0, 4, 0, 4];
         tabCursor.visible = false;
 
@@ -2338,9 +2404,9 @@
         // =====================================================================
         var tabFrame = tabContainer.add("group");
         tabFrame.orientation = "column";
-        tabFrame.alignment = ["fill", "fill"];
+        tabFrame.alignment = ["fill", "top"];
         tabFrame.alignChildren = ["fill", "top"];
-        tabFrame.spacing = 8;
+        tabFrame.spacing = 6;
         tabFrame.margins = [0, 4, 0, 4];
         tabFrame.visible = false;
 
@@ -2441,8 +2507,17 @@
         var shLbl = shRow.add("statictext", undefined, "Drop Shadow:");
         shLbl.preferredSize.width = 85;
 
-        var shSlider = tabFrame.add("slider", undefined, 65, 0, 100);
+        var shSlider = shRow.add("slider", undefined, 65, 0, 100);
         shSlider.alignment = ["fill", "center"];
+
+        var shValTxt = shRow.add("statictext", undefined, "65%");
+        shValTxt.preferredSize.width = 40;
+
+        shSlider.onChanging = function () {
+            var sVal = Math.round(shSlider.value);
+            shValTxt.text = sVal + "%";
+            savePref("selectedShadow", sVal.toString());
+        };
 
         // =====================================================================
         // TAB SWITCHING LOGIC
@@ -2451,6 +2526,7 @@
             tabSetup.visible = (tabName === "setup");
             tabCursor.visible = (tabName === "cursor");
             tabFrame.visible = (tabName === "frame");
+            win.layout.layout(true);
             win.layout.resize();
         }
 
@@ -2463,12 +2539,12 @@
         // =====================================================================
         var bottomBar = win.add("group");
         bottomBar.orientation = "row";
-        bottomBar.alignment = ["fill", "bottom"];
-        bottomBar.margins = [0, 6, 0, 0];
+        bottomBar.alignment = ["fill", "top"];
+        bottomBar.margins = [0, 8, 0, 0];
 
         var btnBuild = bottomBar.add("button", undefined, "Generate Motion Comp");
         btnBuild.alignment = ["fill", "center"];
-        btnBuild.preferredSize.height = 36;
+        btnBuild.preferredSize.height = 34;
 
         btnBuild.onClick = function () {
             if (!selectedVideoFile || !selectedVideoFile.exists) {
@@ -2540,16 +2616,27 @@
     }
 
     // Export module functions for automation / headless pipeline execution
-    if (typeof TraceMotion === "undefined") {
-        TraceMotion = {};
-    }
-    TraceMotion.buildRig = buildTraceMotionRig;
-    TraceMotion.buildUI = buildUI;
+    var TM = {};
+    try {
+        if (typeof $.global !== "undefined" && $.global.TraceMotion) {
+            TM = $.global.TraceMotion;
+        }
+    } catch (eGlobal) {}
+
+    TM.buildRig = buildTraceMotionRig;
+    TM.buildUI = buildUI;
+
+    try {
+        if (typeof $.global !== "undefined") {
+            $.global.TraceMotion = TM;
+        }
+    } catch (eExp) {}
 
     // Auto-launch if executed directly in After Effects
     try {
         if (typeof app !== "undefined" && app.project) {
-            buildUI(this);
+            return buildUI(thisObj);
         }
     } catch (launchErr) {}
-})();
+    return TM;
+})(this);
