@@ -182,21 +182,33 @@ Layer Hierarchy:
 ================================================================================
 8. TROUBLESHOOTING & FAQ
 ================================================================================
-Q: I get "ReferenceError: Object is invalid Line: 1563".
-A: This bug has been completely resolved in the updated TraceMotionImporter.jsx
-   by decoupling vector property creation from property handle evaluation.
+Q: I get "ReferenceError: Function Object.keys is undefined Line: 1673".
+A: Resolved! Adobe After Effects (particularly AE 2020) runs on ECMAScript 3 (1999).
+   TraceMotion now provides native ES3 polyfills and a safe `getObjectKeys()` helper,
+   allowing the script to run seamlessly across AE CC 2020 through CC 2026+.
 
-Q: The camera wobbles or loops upward during zooms.
-A: Resolved! We enforce strict Linear spatial tangents on camera focus keyframes,
-   giving direct, straight-line zooms with smooth cubic ease-in/ease-out.
+Q: The script opens two windows, or a floating window that cannot be docked.
+A: Resolved! The script now detects native ScriptUI Panel hosts and passes the execution
+   scope directly, populating After Effects' docked panel without creating or showing
+   a secondary floating window.
+
+Q: The panel stretches with large empty white spaces.
+A: Resolved! Layout containers are now locked to top alignment with compact 6px margins,
+   a 96px interactive preview canvas, and compact tab panels fitting any docked height.
+
+Q: The camera wobbled or looped upward before diving into zoom targets.
+A: Resolved! Replaced anchor-point animation with Recordly's 1:1 monotonic straight-line
+   transform math from `zoomTransform.ts`. The camera rig origin stays fixed at [0, 0]
+   and moves directly to the focus point with zero reverse motion or upward drift.
 
 Q: The mouse cursor lagged behind text selection in recorded footage.
-A: Resolved! Telemetry drag detection now temporarily snaps spring latency to 0
-   during active text selection so the cursor leads the highlight 1:1.
+A: Resolved! Telemetry drag detection locks the cursor directly to raw coordinates with
+   linear spatial interpolation during text highlighting, so the cursor leads the on-screen
+   highlight 1:1 with zero latency.
 
-Q: How does typing speed-up work?
-A: When enabled, TraceMotion detects when the user clicks a text field and types.
-   It creates a focused camera zoom onto the text input area and adds 2.0x Time
-   Remapping keyframes to the video layer, making tedious typing twice as fast!
+Q: Are click ripples included?
+A: Yes! With the ES3 crash resolved, every click produces a two-tier ripple: an inner
+   pop disc (120ms fade) and an expanding outer shockwave ring (450ms, cubic ease-out)
+   positioned at the calibrated cursor hotspot.
 
 ================================================================================

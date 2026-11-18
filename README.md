@@ -87,32 +87,32 @@ To get the full cinematic benefit of TraceMotion:
 ### Step 3: Import & Generate Rigs in Adobe After Effects
 
 1. Open **Adobe After Effects** (CC 2020 through 2026+).
-2. Go to **File -> Scripts -> Run Script File...** and select:
-   `TraceMotion/after-effects-importer/TraceMotionImporter.jsx`
-   *(Optional: Copy `TraceMotionImporter.jsx` into your After Effects `Support Files/Scripts/` folder to access it from the menu).*
-3. In the TraceMotion UI dialog:
-   - Click **Browse...** and select your recorded video file (`.mp4` or `.mkv`). The script automatically pairs companion `.cursor.json` telemetry.
-   - Choose your **Cursor Style**:
-     - **macOS Tahoe (Recordly Default)**
-     - **macOS Classic**
-     - **Windows 11 Fluent**
-     - **Figma / Minimal**
-     - **Vector Shape (Procedural Fallback)**
-   - Toggle **Asset Pipeline**:
-     - *High-Res PNG*: 512px retina resolution, 100% universal compatibility across all AE versions (CC 2020 through 2026+).
-     - *Vector SVG*: Native vector scaling (AE 2024+).
-   - Enable **Dynamic Cursor States**: Automatically switches between Arrow and Pointer Hand when hovering links/buttons or clicking.
-   - Select your **Motion Physics Tuning**:
-     - *Smooth (Recordly Signature)*: Damped harmonic oscillator with mass 1.4, damping 60, and zero jitter.
-     - *Focused*: Snappier response with higher stiffness.
-   - Set **Click Bounce & Ripple VFX**:
-     - Replicates Recordly's 350ms half-sine depression (100% -> 84% -> 100%) and 600ms cubic ease-out ripple bursts in Recordly Blue (`#2563EB`).
-   - Click **Build TraceMotion Rig**.
-4. In seconds, After Effects generates:
-   - **`[TraceMotion Camera Rig]`**: Master null with Deadband camera controls and cubic-bezier easing.
-   - **`[TraceMotion Cursor]`**: Pixel-accurate cursor layer with Anchor Point locked mathematically to the cursor tip (zero coordinate offset).
-   - **`[TraceMotion Pointer Hand]`**: Synchronized hover state with hold-keyframe opacity.
-   - **`[TraceMotion Click Ripples]`**: Expanding circular ripple burst animations positioned dynamically on clicked screen elements.
+2. Install the dockable ScriptUI panel:
+   - Copy `after-effects-importer/TraceMotionImporter.jsx` and `after-effects-importer/assets/` into:
+     `Support Files/Scripts/ScriptUI Panels/`
+   - Open from the top menu: **Window -> TraceMotionImporter.jsx**.
+3. In the dark-studio panel (Setup | Cursor | Frame):
+   - **Setup Tab**:
+     - Browse and select your recorded video file (`.mp4` or `.mkv`). The companion `.cursor.json` is auto-detected.
+     - Choose Camera Zoom Mode (**Auto Zoom**, **Follow**, or **Static**) and zoom depth (e.g. 1.80x).
+     - Select Motion Feel (**Natural**, **Snappy**, **Silky**, or **Raw**).
+     - Fine-tune toggles: Auto Cursor States, Velocity Tilt Sway, Click Bounce, Composition Motion Blur, and Typing Speed-Up.
+   - **Cursor Tab**:
+     - Choose from 4 curated cursor packs (**macOS Tahoe**, **macOS Classic**, **Windows 11 Fluent**, **Figma Minimal**).
+     - Set cursor size (50% to 200%) and Click Ripple color (**Cobalt #2563EB**, **White**, **Emerald**, **Amber**).
+     - Click inside the interactive preview stage at the top to test ripple animations live.
+   - **Frame Tab**:
+     - Choose from 6 visual backdrop tiles or the full 39 Recordly wallpaper dropdown.
+     - Adjust Corner Radius, Window Margin, and Multi-Stage Soft Drop Shadows.
+   - Click **Generate Motion Comp**.
+4. In seconds, After Effects builds the complete studio motion rig:
+   - **`TraceMotion_Camera_Rig`**: Recordly 1:1 straight-line camera rig with zero waggle or reverse drift.
+   - **`TraceMotion_Camera_Controller`**: Live tuning sliders for Zoom Scale, Margin, Corner Radius, Shadow, Sway, and Focus Point.
+   - **`TraceMotion_Cursor_Master`**: Damped harmonic oscillator spring null with dynamic velocity tilt sway and click depression bounce.
+   - **`Cursor_*` Multi-State Layers**: 10 authentic system cursor shapes switching instantly via Opacity hold keyframes.
+   - **`TraceMotion_Click_Ripples`**: Two-tier ripple VFX with inner soft pop disc (120ms) and expanding outer shockwave ring (450ms, cubic ease-out).
+   - **`TraceMotion_Window_Matte` & `TraceMotion_Window_Shadow`**: Rounded-corner track matte and multi-stage ambient/body/contact soft drop shadows.
+   - **`TraceMotion_Background`**: Wallpaper or gradient cover-scaled to composition bounds.
 
 ---
 
