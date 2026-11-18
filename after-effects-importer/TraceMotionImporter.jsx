@@ -472,11 +472,15 @@
             if (typeof $.fileName !== "undefined" && $.fileName) {
                 var scriptF = new File($.fileName);
                 if (scriptF && scriptF.parent && scriptF.parent.exists) {
+                    searchDirs.push(scriptF.parent.fsName + "/assets/cursors/previews/" + styleId + "_preview.png");
                     searchDirs.push(scriptF.parent.fsName + "/assets/cursors/previews/" + styleId + ".png");
+                    searchDirs.push(scriptF.parent.fsName + "/assets/cursors/" + styleId + "/arrow.png");
                 }
             }
         } catch (e) {}
+        searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/previews/" + styleId + "_preview.png");
         searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/previews/" + styleId + ".png");
+        searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/" + styleId + "/arrow.png");
 
         for (var d = 0; d < searchDirs.length; d++) {
             var f = new File(searchDirs[d]);
@@ -801,7 +805,177 @@
     // =========================================================================
     // Recordly Smart Zoom & Cluster Detection Engine
     // =========================================================================
-    function buildRecordlyZoomClusters(rawSamples, durationSec, zoomScale) {
+    
+    // =========================================================================
+    // Recordly Telemetry Interaction & Typing Detection Engine
+    // =========================================================================
+    function detectTelemetryInteractions(rawSamples, durationSec, enableTypingSpeedup) {
+        var totalMs = durationSec * 1000.0;
+        var dragIntervals = [];
+        var typingIntervals = [];
+
+        // 1. Detect drag and text selection intervals
+        for (var i = 0; i < rawSamples.length; i++) {
+            var s = rawSamples[i];
+            var it = s.interactionType;
+            if (it === "click" || it === "double-click") {
+                for (var j = i + 1; j < rawSamples.length && (rawSamples[j].timeMs - s.timeMs) <= 3000; j++) {
+                    var candidate = rawSamples[j];
+                    if (candidate.interactionType === "mouseup") {
+                        var dragDuration = candidate.timeMs - s.timeMs;
+                        var dragDx = Math.abs(candidate.cx - s.cx);
+                        var dragDy = Math.abs(candidate.cy - s.cy);
+                        var dragDist = Math.sqrt(dragDx * dragDx + dragDy * dragDy);
+                        if (dragDuration >= 140 && dragDist > 0.015) {
+                            dragIntervals.push({
+                                startMs: s.timeMs,
+                                endMs: candidate.timeMs,
+                                isText: dragDx > dragDy * 1.6 || s.cursorType === "text"
+                            });
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Add intervals where cursorType is "text" (I-beam in motion selecting text)
+        var textRunStart = -1;
+        for (var k = 0; k < rawSamples.length; k++) {
+            var smp = rawSamples[k];
+            if (smp.cursorType === "text") {
+                if (textRunStart < 0) textRunStart = smp.timeMs;
+            } else {
+                if (textRunStart >= 0) {
+                    if (rawSamples[k - 1].timeMs - textRunStart >= 180) {
+                        dragIntervals.push({
+                            startMs: textRunStart,
+                            endMs: rawSamples[k - 1].timeMs,
+                            isText: true
+                        });
+                    }
+                    textRunStart = -1;
+                }
+            }
+        }
+        if (textRunStart >= 0 && rawSamples.length > 0) {
+            dragIntervals.push({
+                startMs: textRunStart,
+                endMs: rawSamples[rawSamples.length - 1].timeMs,
+                isText: true
+            });
+        }
+
+        // 2. Detect typing intervals (text-field click followed by dwell)
+        for (var c = 0; c < rawSamples.length; c++) {
+            var clickS = rawSamples[c];
+            if (clickS.interactionType === "click" || clickS.cursorType === "text") {
+                var windowEnd = Math.min(totalMs, clickS.timeMs + 6000);
+                var maxDisp = 0;
+                var lastStationaryMs = clickS.timeMs;
+                for (var w = c + 1; w < rawSamples.length && rawSamples[w].timeMs <= windowEnd; w++) {
+                    var sMove = rawSamples[w];
+                    var d = Math.sqrt(Math.pow(sMove.cx - clickS.cx, 2) + Math.pow(sMove.cy - clickS.cy, 2));
+                    if (d > maxDisp) maxDisp = d;
+                    if (maxDisp > 0.03) break;
+                    lastStationaryMs = sMove.timeMs;
+                }
+                var typingDur = lastStationaryMs - clickS.timeMs;
+                if (typingDur >= 700) {
+                    typingIntervals.push({
+                        startMs: clickS.timeMs,
+                        endMs: lastStationaryMs,
+                        cx: clickS.cx,
+                        cy: clickS.cy
+                    });
+                }
+            }
+        }
+
+        // Merge overlapping typing intervals
+        var mergedTyping = [];
+        if (typingIntervals.length > 0) {
+            typingIntervals.sort(function(a, b) { return a.startMs - b.startMs; });
+            var curTyping = {
+                startMs: typingIntervals[0].startMs,
+                endMs: typingIntervals[0].endMs,
+                cx: typingIntervals[0].cx,
+                cy: typingIntervals[0].cy
+            };
+            for (var m = 1; m < typingIntervals.length; m++) {
+                var nextT = typingIntervals[m];
+                if (nextT.startMs <= curTyping.endMs + 600) {
+                    curTyping.endMs = Math.max(curTyping.endMs, nextT.endMs);
+                } else {
+                    mergedTyping.push(curTyping);
+                    curTyping = {
+                        startMs: nextT.startMs,
+                        endMs: nextT.endMs,
+                        cx: nextT.cx,
+                        cy: nextT.cy
+                    };
+                }
+            }
+            mergedTyping.push(curTyping);
+        }
+
+        // 3. Build 2.0x Time-Mapping Function for Typing Speed-Up
+        var speedFactor = 2.0;
+        var totalSavedSec = 0;
+        if (enableTypingSpeedup && mergedTyping.length > 0) {
+            for (var t = 0; t < mergedTyping.length; t++) {
+                var durSec = (mergedTyping[t].endMs - mergedTyping[t].startMs) / 1000.0;
+                totalSavedSec += durSec * (1.0 - 1.0 / speedFactor);
+            }
+        }
+
+        function timeMapFn(tSec) {
+            if (!enableTypingSpeedup || mergedTyping.length === 0) {
+                return { compSec: tSec, isTyping: false };
+            }
+            var tMs = tSec * 1000.0;
+            var savedMs = 0;
+            var inTyping = false;
+            for (var i = 0; i < mergedTyping.length; i++) {
+                var seg = mergedTyping[i];
+                if (tMs <= seg.startMs) {
+                    break;
+                } else if (tMs >= seg.endMs) {
+                    savedMs += (seg.endMs - seg.startMs) * (1.0 - 1.0 / speedFactor);
+                } else {
+                    savedMs += (tMs - seg.startMs) * (1.0 - 1.0 / speedFactor);
+                    inTyping = true;
+                    break;
+                }
+            }
+            return {
+                compSec: Math.max(0, (tMs - savedMs) / 1000.0),
+                isTyping: inTyping
+            };
+        }
+
+        function isDragAtTime(tMs) {
+            for (var d = 0; d < dragIntervals.length; d++) {
+                if (tMs >= dragIntervals[d].startMs && tMs <= dragIntervals[d].endMs) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        return {
+            dragIntervals: dragIntervals,
+            typingIntervals: mergedTyping,
+            totalSavedSec: totalSavedSec,
+            timeMapFn: timeMapFn,
+            isDragAtTime: isDragAtTime
+        };
+    }
+
+    // =========================================================================
+    // Recordly Smart Zoom & Cluster Detection Engine (with Typing Clusters)
+    // =========================================================================
+    function buildRecordlyZoomClusters(rawSamples, durationSec, zoomScale, typingIntervals) {
         var totalMs = durationSec * 1000.0;
         var mergeGapMs = 2500;
         var padMs = 500;
@@ -857,11 +1031,25 @@
             }
         }
 
+        // 3. Typing Intervals as High-Priority Focus Candidates
+        if (typingIntervals && typingIntervals.length > 0) {
+            for (var tp = 0; tp < typingIntervals.length; tp++) {
+                var tItem = typingIntervals[tp];
+                candidates.push({
+                    timeMs: Math.round((tItem.startMs + tItem.endMs) / 2),
+                    cx: tItem.cx,
+                    cy: tItem.cy,
+                    strength: 2400,
+                    isExplicit: true
+                });
+            }
+        }
+
         if (candidates.length === 0) return [];
 
         candidates.sort(function (a, b) { return a.timeMs - b.timeMs; });
 
-        // 3. Merge Clusters within mergeGapMs
+        // Merge Clusters within mergeGapMs
         var clusters = [];
         var curStart = candidates[0].timeMs;
         var curEnd = candidates[0].timeMs;
@@ -910,7 +1098,7 @@
             cy: bestCy !== undefined ? bestCy : (sumCy / count)
         });
 
-        // 4. Clamp focus to Recordly viewport safety bounds
+        // Clamp focus to Recordly viewport safety bounds
         var marginX = 1.0 / (2.0 * zoomScale);
         var marginY = 1.0 / (2.0 * zoomScale);
         for (var cl = 0; cl < clusters.length; cl++) {
@@ -968,8 +1156,14 @@
             var duration = footageItem.duration;
             var fps = footageItem.frameRate || 60;
 
+            // Analyze telemetry for drags, text selection, and typing speedup
+            var enableTypingSpeedup = options.enableTypingSpeedup !== false;
+            var telemetryAnalysis = detectTelemetryInteractions(rawSamples, duration, enableTypingSpeedup);
+            var compDuration = Math.max(0.2, duration - telemetryAnalysis.totalSavedSec);
+            var timeMapFn = telemetryAnalysis.timeMapFn;
+
             // 3. Canvas Sizing with Breathing Room Margin
-            var marginPct = Math.max(0, Math.min(30, options.canvasMargin || 12));
+            var marginPct = Math.max(0, Math.min(30, options.canvasMargin !== undefined ? options.canvasMargin : 12));
             var marginScaleFactor = 1.0 + (marginPct / 100.0) * 0.5;
             var compW = Math.round(footageW * marginScaleFactor);
             var compH = Math.round(footageH * marginScaleFactor);
@@ -984,33 +1178,32 @@
                 compW,
                 compH,
                 1.0,
-                duration,
+                compDuration,
                 fps
             );
             try { comp.openInViewer(); } catch (viewerErr) {}
-            comp.motionBlur = options.enableMotionBlur;
+            comp.motionBlur = options.enableMotionBlur !== false;
 
             // -----------------------------------------------------------------
             // RIG LAYER HIERARCHY:
-            // Layer 1 (Top): TraceMotion_Click_Ripples (Shape Layer) -> parented to Camera Rig
-            // Layer 2..N:    Cursor State Layers (arrow, pointer, etc.) -> parented to Cursor Master
+            // Layer 1 (Top): TraceMotion_Click_Ripples (Two-Tier Shockwave Shape Layer)
+            // Layer 2..N:    Cursor State Layers -> parented to Cursor Master
             // Layer N+1:     TraceMotion_Cursor_Master (Null Layer) -> parented to Camera Rig
             // Layer N+2:     TraceMotion_Camera_Controller (Null Guide Layer) -> carries all controls
             // Layer N+3:     TraceMotion_Camera_Rig (Master Null) -> pans & zooms all window elements
-            // Layer N+4:     TraceMotion_Window_Matte (Shape Layer, Alpha Matte for Video) -> parented to Rig
-            // Layer N+5:     Clean_Screen_Capture (Video Footage) -> parented to Rig
-            // Layer N+6:     TraceMotion_Window_Shadow (Shape Layer with 3 Drop Shadows) -> parented to Rig
-            // Layer N+7:     TraceMotion_Background (Wallpaper or Gradient Solid) -> bottom
+            // Layer N+4:     TraceMotion_Window_Matte (Shape Layer, Alpha Matte for Video)
+            // Layer N+5:     Clean_Screen_Capture (Video Footage, Time-Remapped during typing)
+            // Layer N+6:     TraceMotion_Window_Shadow (Shape Layer with 3 Drop Shadows)
+            // Layer N+7:     TraceMotion_Background (Cover-scale Wallpaper or Gradient)
             // -----------------------------------------------------------------
 
             // 5. Add Background Layer (Wallpaper or Gradient)
             var bgLayer = null;
-            var wpKey = options.wallpaper || options.backgroundPreset || "tahoe-light";
+            var wpKey = options.wallpaper || options.backgroundPreset || "tahoe-light.jpg";
 
             if (wpKey !== "none") {
                 var wpFile = getWallpaperAssetFile(wpKey.indexOf(".") > 0 ? wpKey : (wpKey + ".jpg"));
                 if (!wpFile || !wpFile.exists) {
-                    // Check if wpKey matches an id in RECORDLY_WALLPAPERS
                     for (var w = 0; w < RECORDLY_WALLPAPERS.length; w++) {
                         if (RECORDLY_WALLPAPERS[w].id === wpKey || RECORDLY_WALLPAPERS[w].filename === wpKey) {
                             wpFile = getWallpaperAssetFile(RECORDLY_WALLPAPERS[w].filename);
@@ -1030,10 +1223,9 @@
                     } catch (eWp) {}
                 }
 
-                // Fallback to Gradient Ramp solid if wallpaper was not imported
                 if (!bgLayer) {
                     var bgData = BACKGROUND_PRESETS[wpKey] || BACKGROUND_PRESETS["tahoe-dawn"];
-                    bgLayer = comp.layers.addSolid(bgData.start, "TraceMotion_Background", compW, compH, 1.0, duration);
+                    bgLayer = comp.layers.addSolid(bgData.start, "TraceMotion_Background", compW, compH, 1.0, compDuration);
                     var bgFx = bgLayer.property("ADBE Effect Parade");
                     var ramp = bgFx.addProperty("ADBE Ramp");
                     ramp.name = "Background Gradient";
@@ -1047,11 +1239,11 @@
                     if (bgData.isRadial) {
                         SafeProp.setValue(rStartPt, [compW * 0.5, compH * 0.45]);
                         SafeProp.setValue(rEndPt, [compW * 0.9, compH * 0.9]);
-                        SafeProp.setValue(rShape, 2); // Radial Ramp
+                        SafeProp.setValue(rShape, 2);
                     } else {
                         SafeProp.setValue(rStartPt, [compW * 0.2, compH * 0.1]);
                         SafeProp.setValue(rEndPt, [compW * 0.8, compH * 0.9]);
-                        SafeProp.setValue(rShape, 1); // Linear Ramp
+                        SafeProp.setValue(rShape, 1);
                     }
                     SafeProp.setValue(rStartCol, bgData.start);
                     SafeProp.setValue(rEndCol, bgData.end);
@@ -1078,12 +1270,11 @@
             fxParade.addProperty("ADBE Slider Control").name = "Cursor Sway";
             fxParade.addProperty("ADBE Point Control").name = "Camera Focus";
 
-            // Initialize default values using live layer queries
             controller.effect("Zoom Scale")("Slider").setValue(100);
             controller.effect("Canvas Margin")("Slider").setValue(marginPct);
-            controller.effect("Corner Radius")("Slider").setValue(options.cornerRadius || 20);
-            controller.effect("Shadow Intensity")("Slider").setValue(options.shadowIntensity || 65);
-            controller.effect("Cursor Sway")("Slider").setValue(options.swayAmount || 0.4);
+            controller.effect("Corner Radius")("Slider").setValue(options.cornerRadius !== undefined ? options.cornerRadius : 20);
+            controller.effect("Shadow Intensity")("Slider").setValue(options.shadowIntensity !== undefined ? options.shadowIntensity : 65);
+            controller.effect("Cursor Sway")("Slider").setValue(options.swayAmount !== undefined ? options.swayAmount : 0.4);
             controller.effect("Camera Focus")("Point").setValue([footageW / 2, footageH / 2]);
 
             // Connect Camera Rig Null transforms to Camera Controller
@@ -1121,10 +1312,9 @@
             var shFill = shVecs.addProperty("ADBE Vector Graphic - Fill");
             shFill.property("ADBE Vector Fill Color").setValue([1.0, 1.0, 1.0, 1.0]);
 
-            // Add Multi-Stage Soft Drop Shadows to shadowLayer
+            // Multi-Stage Soft Drop Shadows on shadowLayer
             var shadowFx = shadowLayer.property("ADBE Effect Parade");
 
-            // Shadow 1: Ambient Soft Diffusion (Distance 16, Softness 48)
             var sh1 = shadowFx.addProperty("ADBE Drop Shadow");
             sh1.name = "Window Drop Shadow (Ambient)";
             sh1.property("Distance").setValue(16);
@@ -1133,7 +1323,6 @@
             sh1.property("Opacity").expression =
                 "thisComp.layer('" + controller.name + "').effect('Shadow Intensity')('Slider') * 0.70;";
 
-            // Shadow 2: Body Depth (Distance 6, Softness 16)
             var sh2 = shadowFx.addProperty("ADBE Drop Shadow");
             sh2.name = "Window Drop Shadow (Body)";
             sh2.property("Distance").setValue(6);
@@ -1142,7 +1331,6 @@
             sh2.property("Opacity").expression =
                 "thisComp.layer('" + controller.name + "').effect('Shadow Intensity')('Slider') * 0.40;";
 
-            // Shadow 3: Contact Edge (Distance 2, Softness 6)
             var sh3 = shadowFx.addProperty("ADBE Drop Shadow");
             sh3.name = "Window Drop Shadow (Contact)";
             sh3.property("Distance").setValue(2);
@@ -1151,16 +1339,44 @@
             sh3.property("Opacity").expression =
                 "thisComp.layer('" + controller.name + "').effect('Shadow Intensity')('Slider') * 0.25;";
 
-            // 9. Add Screen Recording Video Layer (Parented to Rig, NO Drop Shadows to Prevent Matte Clipping)
+            // 9. Add Clean Screen Capture Video Footage Layer
             var videoLayer = comp.layers.add(footageItem);
             videoLayer.name = "Clean_Screen_Capture";
             videoLayer.parent = cameraRig;
             videoLayer.transform.anchorPoint.setValue([footageW / 2, footageH / 2]);
             videoLayer.transform.position.setValue([footageW / 2, footageH / 2]);
             videoLayer.transform.scale.setValue([100, 100]);
-            videoLayer.motionBlur = options.enableMotionBlur;
 
-            // 10. Create Window Track Matte Layer (Rounded Corners Matching Video Coordinates 1:1)
+            // Apply 2.0x Time Remapping during typing intervals if enabled
+            if (enableTypingSpeedup && telemetryAnalysis.typingIntervals.length > 0) {
+                try {
+                    videoLayer.timeRemapEnabled = true;
+                    var trProp = videoLayer.property("ADBE Time Remapping");
+                    while (trProp.numKeys > 0) {
+                        trProp.removeKey(1);
+                    }
+                    trProp.setValueAtTime(0, 0);
+
+                    for (var ty = 0; ty < telemetryAnalysis.typingIntervals.length; ty++) {
+                        var tSeg = telemetryAnalysis.typingIntervals[ty];
+                        var rawStartSec = tSeg.startMs / 1000.0;
+                        var rawEndSec = tSeg.endMs / 1000.0;
+                        var mappedStart = timeMapFn(rawStartSec).compSec;
+                        var mappedEnd = timeMapFn(rawEndSec).compSec;
+
+                        trProp.setValueAtTime(mappedStart, rawStartSec);
+                        trProp.setValueAtTime(mappedEnd, rawEndSec);
+                    }
+                    trProp.setValueAtTime(compDuration, duration);
+
+                    // Linear temporal ease on time remap keys
+                    for (var trk = 1; trk <= trProp.numKeys; trk++) {
+                        trProp.setInterpolationTypeAtKey(trk, KeyframeInterpolationType.LINEAR);
+                    }
+                } catch (eTr) {}
+            }
+
+            // 10. Add Window Matte Shape Layer (Alpha Track Matte for Video Footage)
             var matteLayer = comp.layers.addShape();
             matteLayer.name = "TraceMotion_Window_Matte";
             matteLayer.parent = cameraRig;
@@ -1170,7 +1386,7 @@
 
             var mRoot = matteLayer.property("ADBE Root Vectors Group");
             var mGrp = mRoot.addProperty("ADBE Vector Group");
-            mGrp.name = "Window Bounds";
+            mGrp.name = "Window Matte Shape";
             var mVecs = mGrp.property("ADBE Vectors Group");
 
             var mRect = mVecs.addProperty("ADBE Vector Shape - Rect");
@@ -1182,22 +1398,26 @@
             var mFill = mVecs.addProperty("ADBE Vector Graphic - Fill");
             mFill.property("ADBE Vector Fill Color").setValue([1.0, 1.0, 1.0, 1.0]);
 
-            // Set Alpha Track Matte on video layer (1:1 Match, Zero 1/4 Screen Clipping!)
+            // Set Video Footage Track Matte to Alpha Matte
+            matteLayer.moveBefore(videoLayer);
             try {
-                if (typeof videoLayer.setTrackMatte === "function") {
+                if (typeof TrackMatteType !== "undefined" && typeof TrackMatteType.ALPHA !== "undefined") {
                     videoLayer.setTrackMatte(matteLayer, TrackMatteType.ALPHA);
                 } else {
                     videoLayer.trackMatteType = TrackMatteType.ALPHA;
                 }
-            } catch (matteErr) {}
+            } catch (tmErr) {
+                try { videoLayer.trackMatteType = TrackMatteType.ALPHA; } catch (eFallback) {}
+            }
 
-            // 11. Recordly Damped Harmonic Oscillator Simulation
-            var springConfig = getCursorSpringConfig(options.cursorSmoothing, {
-                stiffnessMultiplier: options.motionPreset === "focused" ? 1.35 : 0.92,
-                dampingMultiplier: options.motionPreset === "focused" ? 0.79 : 1.36,
-                massMultiplier: 1.29
-            });
+            // 11. Spring Physics Solver Configuration
+            var feel = options.motionFeel || "natural";
+            var smoothingVal = 0.5;
+            if (feel === "snappy") smoothingVal = 0.2;
+            else if (feel === "silky") smoothingVal = 0.85;
+            else if (feel === "raw") smoothingVal = 0.0;
 
+            var springConfig = getCursorSpringConfig(smoothingVal);
             var xSpring = { value: rawSamples[0].cx, velocity: 0, initialized: true };
             var ySpring = { value: rawSamples[0].cy, velocity: 0, initialized: true };
 
@@ -1219,12 +1439,27 @@
             for (var frame = 0; frame <= totalFrames; frame++) {
                 var timeMs = frame * dtMs;
                 var target = interpolateCursorPosition(rawSamples, timeMs);
-                var smX = stepSpringValue(xSpring, target.cx, dtMs, springConfig);
-                var smY = stepSpringValue(ySpring, target.cy, dtMs, springConfig);
 
+                var isDrag = telemetryAnalysis.isDragAtTime(timeMs);
+                var smX, smY;
+
+                if (isDrag) {
+                    // Lock cursor 1:1 during text selection and dragging so it leads the highlight
+                    xSpring.value = target.cx;
+                    xSpring.velocity = 0;
+                    ySpring.value = target.cy;
+                    ySpring.velocity = 0;
+                    smX = target.cx;
+                    smY = target.cy;
+                } else {
+                    smX = stepSpringValue(xSpring, target.cx, dtMs, springConfig);
+                    smY = stepSpringValue(ySpring, target.cy, dtMs, springConfig);
+                }
+
+                var mappedCompSec = timeMapFn(timeMs / 1000.0).compSec;
                 simulatedPath.push({
                     timeMs: timeMs,
-                    timeSec: timeMs / 1000.0,
+                    timeSec: mappedCompSec,
                     cx: smX,
                     cy: smY,
                     isClick: !!clickTimeMap[Math.round(timeMs)]
@@ -1237,24 +1472,27 @@
                 finalKeys = rdpSimplify(simulatedPath, normTol);
             }
 
-            // 12. Recordly Smart Zoom & Pan Trajectory (Keyframing Controller Properties Freshly)
+            // 12. Recordly Smart Zoom & Pan Trajectory (Strict Straight-Line Easing, No Wobble!)
             var targetZoomScale = Math.max(1.0, (options.zoomDepthScale || 1.8));
 
             if (options.zoomMode === "auto-cluster") {
-                var clusters = buildRecordlyZoomClusters(rawSamples, duration, targetZoomScale);
+                var clusters = buildRecordlyZoomClusters(rawSamples, duration, targetZoomScale, telemetryAnalysis.typingIntervals);
                 var easeInOut = new KeyframeEase(0, 84.0);
 
-                // Use dynamic property queries to avoid stale pointers
                 controller.effect("Camera Focus")("Point").setValueAtTime(0, [footageW / 2, footageH / 2]);
                 controller.effect("Zoom Scale")("Slider").setValueAtTime(0, 100);
 
-                var zoomTransitionSec = 1.1;
+                var zoomTransitionSec = 0.95;
                 for (var cl = 0; cl < clusters.length; cl++) {
                     var cluster = clusters[cl];
-                    var tStart = cluster.startSec;
-                    var tInEnd = Math.min(cluster.endSec, tStart + zoomTransitionSec);
-                    var tOutStart = Math.max(tInEnd, cluster.endSec - zoomTransitionSec * 0.85);
-                    var tEnd = cluster.endSec;
+                    var rawStartSec = cluster.startSec;
+                    var rawEndSec = cluster.endSec;
+
+                    var tStart = timeMapFn(rawStartSec).compSec;
+                    var tEnd = timeMapFn(rawEndSec).compSec;
+                    var tInEnd = Math.min(tEnd, tStart + zoomTransitionSec);
+                    var tOutStart = Math.max(tInEnd, tEnd - zoomTransitionSec * 0.85);
+
                     var focusPt = [cluster.cx * footageW, cluster.cy * footageH];
 
                     controller.effect("Zoom Scale")("Slider").setValueAtTime(tStart, 100);
@@ -1274,12 +1512,15 @@
                 for (var zk = 1; zk <= zProp.numKeys; zk++) {
                     SafeProp.setTemporalEase(zProp, zk, easeInOut, easeInOut);
                 }
+
                 var pProp = controller.effect("Camera Focus")("Point");
                 for (var pk = 1; pk <= pProp.numKeys; pk++) {
                     SafeProp.setTemporalEase(pProp, pk, easeInOut, easeInOut);
                     try {
-                        pProp.setSpatialContinuousAtKey(pk, true);
-                        pProp.setSpatialAutoBezierAtKey(pk, true);
+                        // Strict Linear spatial tangents eliminate the boomerang loop / waggle!
+                        pProp.setSpatialContinuousAtKey(pk, false);
+                        pProp.setSpatialAutoBezierAtKey(pk, false);
+                        pProp.setInterpolationTypeAtKey(pk, KeyframeInterpolationType.LINEAR);
                     } catch (e) {}
                 }
 
@@ -1322,8 +1563,9 @@
                 for (var k = 1; k <= contPProp.numKeys; k++) {
                     SafeProp.setTemporalEase(contPProp, k, easeIn, easeOut);
                     try {
-                        contPProp.setSpatialContinuousAtKey(k, true);
-                        contPProp.setSpatialAutoBezierAtKey(k, true);
+                        contPProp.setSpatialContinuousAtKey(k, false);
+                        contPProp.setSpatialAutoBezierAtKey(k, false);
+                        contPProp.setInterpolationTypeAtKey(k, KeyframeInterpolationType.LINEAR);
                     } catch (e) {}
                 }
             } else {
@@ -1337,9 +1579,8 @@
             cursorMaster.guideLayer = true;
             cursorMaster.parent = cameraRig;
             cursorMaster.transform.anchorPoint.setValue([0, 0]);
-            cursorMaster.motionBlur = options.enableMotionBlur;
+            cursorMaster.motionBlur = options.enableMotionBlur !== false;
 
-            // Apply smoothed position keyframes to Cursor Master
             var masterPosProp = cursorMaster.transform.position;
             for (var f = 0; f < finalKeys.length; f++) {
                 var s = finalKeys[f];
@@ -1352,243 +1593,217 @@
                 } catch (e) {}
             }
 
-            // Apply Velocity Sway Rotation Expression
-            if (options.swayAmount > 0) {
+            // Dynamic Velocity Sway (Tilt Rotation)
+            if (options.enableVelocitySway !== false) {
                 cursorMaster.transform.rotation.expression =
-                    "var v = transform.position.velocity;\n" +
-                    "var spd = Math.sqrt(v[0] * v[0] + v[1] * v[1]);\n" +
-                    "if (spd > 0.5) {\n" +
-                    "    var ctrl = thisComp.layer('" + controller.name + "');\n" +
-                    "    var sway = ctrl.effect('Cursor Sway')('Slider');\n" +
-                    "    var speedFactor = Math.min(1.0, spd / 1400.0);\n" +
-                    "    var dirBias = (v[0] + v[1] * 0.65) / spd;\n" +
-                    "    clamp(dirBias * speedFactor * 10.0 * sway * 3.0, -35, 35);\n" +
-                    "} else { 0; }";
+                    "var swayMaxDeg = 10.0 * thisComp.layer('" + controller.name + "').effect('Cursor Sway')('Slider');\n" +
+                    "var vx = transform.position.velocity[0];\n" +
+                    "var normVx = Math.max(-1.0, Math.min(1.0, vx / 2200.0));\n" +
+                    "-normVx * swayMaxDeg;";
             }
 
-            // Apply Click Bounce Scale Keyframes to Cursor Master
-            if (options.createClickBounce) {
-                var masterScaleProp = cursorMaster.transform.scale;
-                var bounceEase = new KeyframeEase(0, 75.0);
+            // Click Bounce Compression
+            if (options.enableClickBounce !== false && clickSamplesList.length > 0) {
+                var scaleProp = cursorMaster.transform.scale;
+                scaleProp.setValue([100, 100]);
 
-                for (var rIdx = 0; rIdx < clickSamplesList.length; rIdx++) {
-                    var rawS = clickSamplesList[rIdx];
-                    var clickTime = rawS.timeMs / 1000.0;
+                var bounceDurationSec = 0.350;
+                var depressionScale = 84.0;
+                var overshootScale = 104.0;
 
-                    masterScaleProp.setValueAtTime(clickTime, [100.0, 100.0]);
-                    masterScaleProp.setValueAtTime(clickTime + 0.175, [84.0, 84.0]);
-                    masterScaleProp.setValueAtTime(clickTime + 0.350, [100.0, 100.0]);
+                for (var ci = 0; ci < clickSamplesList.length; ci++) {
+                    var cSample = clickSamplesList[ci];
+                    var mappedClickSec = timeMapFn(cSample.timeMs / 1000.0).compSec;
+                    var tDip = mappedClickSec + 0.045;
+                    var tOvershoot = mappedClickSec + 0.160;
+                    var tSettle = mappedClickSec + bounceDurationSec;
 
-                    var keyCount = masterScaleProp.numKeys;
-                    if (keyCount >= 3) {
-                        try {
-                            SafeProp.setTemporalEase(masterScaleProp, keyCount - 2, bounceEase, bounceEase);
-                            SafeProp.setTemporalEase(masterScaleProp, keyCount - 1, bounceEase, bounceEase);
-                            SafeProp.setTemporalEase(masterScaleProp, keyCount, bounceEase, bounceEase);
-                        } catch (e) {}
+                    if (mappedClickSec > 0.02) {
+                        scaleProp.setValueAtTime(mappedClickSec - 0.016, [100, 100]);
+                    }
+                    scaleProp.setValueAtTime(mappedClickSec, [100, 100]);
+                    scaleProp.setValueAtTime(tDip, [depressionScale, depressionScale]);
+                    scaleProp.setValueAtTime(tOvershoot, [overshootScale, overshootScale]);
+                    scaleProp.setValueAtTime(tSettle, [100, 100]);
+                }
+            }
+
+            // 14. Create Multi-State Cursor Stack
+            var styleKey = options.cursorStyle || "tahoe";
+            var styleDef = CURSOR_MANIFEST[styleKey] || CURSOR_MANIFEST.tahoe;
+            var userCursorScale = (options.cursorScale || 100) / 100.0;
+            var baseCursorHeight = 32.0 * userCursorScale;
+
+            var cursorStateLayers = {};
+            var cursorStateNames = [
+                "arrow", "pointer", "text", "crosshair",
+                "open-hand", "closed-hand", "resize-ew", "resize-ns",
+                "not-allowed", "wait"
+            ];
+
+            for (var st = 0; st < cursorStateNames.length; st++) {
+                var stateName = cursorStateNames[st];
+                var assetFile = getCursorAssetFile(styleKey, stateName, false);
+                if (!assetFile || !assetFile.exists) {
+                    assetFile = getCursorAssetFile(styleKey, "arrow", false);
+                }
+                if (!assetFile || !assetFile.exists) continue;
+
+                var cursorItem = proj.importFile(new ImportOptions(assetFile));
+                var cLayer = comp.layers.add(cursorItem);
+                cLayer.name = "Cursor_" + stateName;
+                cLayer.parent = cursorMaster;
+                cLayer.motionBlur = options.enableMotionBlur !== false;
+
+                var anchorMeta = (styleDef.cursors && styleDef.cursors[stateName]) || { anchorX: 0.14, anchorY: 0.06 };
+                var hotspotX = cursorItem.width * anchorMeta.anchorX;
+                var hotspotY = cursorItem.height * anchorMeta.anchorY;
+                cLayer.transform.anchorPoint.setValue([hotspotX, hotspotY]);
+                cLayer.transform.position.setValue([0, 0]);
+
+                var targetH = (stateName === "text" || stateName.indexOf("resize") >= 0) ? (baseCursorHeight * 1.15) : baseCursorHeight;
+                var sPercent = (targetH / cursorItem.height) * 100.0;
+                cLayer.transform.scale.setValue([sPercent, sPercent]);
+
+                cursorStateLayers[stateName] = cLayer;
+                cLayer.transform.opacity.setValueAtTime(0, (stateName === "arrow") ? 100.0 : 0.0);
+            }
+
+            // Dynamic State Switching via Opacity Hold Keyframes
+            if (options.enableAutoStates !== false && Object.keys(cursorStateLayers).length > 1) {
+                var stateRuns = [];
+                var currentRunState = rawSamples[0].cursorType || "arrow";
+                var currentRunStart = rawSamples[0].timeMs;
+
+                for (var rIdx = 1; rIdx < rawSamples.length; rIdx++) {
+                    var sType = rawSamples[rIdx].cursorType || "arrow";
+                    if (sType !== currentRunState) {
+                        stateRuns.push({
+                            state: currentRunState,
+                            startSec: timeMapFn(currentRunStart / 1000.0).compSec,
+                            endSec: timeMapFn(rawSamples[rIdx].timeMs / 1000.0).compSec
+                        });
+                        currentRunState = sType;
+                        currentRunStart = rawSamples[rIdx].timeMs;
                     }
                 }
-            }
+                stateRuns.push({
+                    state: currentRunState,
+                    startSec: timeMapFn(currentRunStart / 1000.0).compSec,
+                    endSec: compDuration
+                });
 
-            // 14. Multi-State Cursor Rig (Import All Available Cursor States, Parent to Master Null)
-            var styleDef = CURSOR_MANIFEST[options.cursorStyle] || CURSOR_MANIFEST.tahoe;
-            var baseCursorHeight = 28.0 * 2.5 * (options.cursorScalePct / 100.0) * (footageH / 1080.0) * styleDef.sizeMultiplier;
+                for (var runI = 0; runI < stateRuns.length; runI++) {
+                    var run = stateRuns[runI];
+                    var activeState = cursorStateLayers[run.state] ? run.state : "arrow";
 
-            var cursorStateNames = ["arrow"];
-            if (options.dynamicCursorStates && styleDef.cursors) {
-                var potentialStates = ["pointer", "text", "crosshair", "open-hand", "closed-hand", "resize-ew", "resize-ns", "not-allowed", "wait"];
-                for (var ps = 0; ps < potentialStates.length; ps++) {
-                    var stKey = potentialStates[ps];
-                    if (styleDef.cursors[stKey]) {
-                        cursorStateNames.push(stKey);
-                    }
-                }
-            }
-
-            var stateLayers = {};
-            for (var sn = 0; sn < cursorStateNames.length; sn++) {
-                var stateName = cursorStateNames[sn];
-                var cData = styleDef.cursors ? styleDef.cursors[stateName] : null;
-                var assetFile = getCursorAssetFile(options.cursorStyle, stateName, options.preferSvg);
-
-                var sLayer = null;
-                var sWidth = 512;
-                var sHeight = 512;
-
-                if (assetFile && assetFile.exists) {
-                    var cFootage = proj.importFile(new ImportOptions(assetFile));
-                    sLayer = comp.layers.add(cFootage);
-                    sLayer.name = "TraceMotion_Cursor_" + stateName + " [" + styleDef.label + "]";
-                    sWidth = cFootage.width;
-                    sHeight = cFootage.height;
-                } else if (stateName === "arrow") {
-                    // Procedural fallback for arrow
-                    sLayer = comp.layers.addShape();
-                    sLayer.name = "TraceMotion_Cursor_arrow [Procedural Vector]";
-
-                    var rootGrp = sLayer.property("ADBE Root Vectors Group");
-                    var shapeGrp = rootGrp.addProperty("ADBE Vector Group");
-                    shapeGrp.name = "Cursor Arrow";
-                    var grpVectors = shapeGrp.property("ADBE Vectors Group");
-
-                    var pathShape = new Shape();
-                    pathShape.vertices = [[0, 0], [0, 24], [6, 18], [11, 28], [14, 26], [9, 16], [17, 16]];
-                    pathShape.closed = true;
-
-                    var pathProp = grpVectors.addProperty("ADBE Vector Shape - Group");
-                    pathProp.property("ADBE Vector Shape").setValue(pathShape);
-
-                    var fillProp = grpVectors.addProperty("ADBE Vector Graphic - Fill");
-                    fillProp.property("ADBE Vector Fill Color").setValue([0.05, 0.05, 0.05, 1.0]);
-
-                    var strokeProp = grpVectors.addProperty("ADBE Vector Graphic - Stroke");
-                    strokeProp.property("ADBE Vector Stroke Color").setValue([1.0, 1.0, 1.0, 1.0]);
-                    strokeProp.property("ADBE Vector Stroke Width").setValue(2.0);
-
-                    sWidth = 32;
-                    sHeight = 32;
-                    cData = { anchorX: 0, anchorY: 0 };
-                }
-
-                if (sLayer) {
-                    sLayer.parent = cursorMaster;
-                    sLayer.motionBlur = options.enableMotionBlur;
-
-                    var hX = sWidth * (cData ? cData.anchorX : 0);
-                    var hY = sHeight * (cData ? cData.anchorY : 0);
-                    sLayer.transform.anchorPoint.setValue([hX, hY]);
-                    sLayer.transform.position.setValue([0, 0]);
-
-                    var sFactor = (baseCursorHeight / sHeight) * 100.0;
-                    sLayer.transform.scale.setValue([sFactor, sFactor]);
-
-                    sLayer.transform.opacity.setValue(stateName === "arrow" ? 100.0 : 0.0);
-                    stateLayers[stateName] = sLayer;
-                }
-            }
-
-            // Keyframe cursor state transitions using Hold keyframes on Opacity
-            if (options.dynamicCursorStates && cursorStateNames.length > 1) {
-                var lastState = "arrow";
-                for (var sk = 0; sk < rawSamples.length; sk++) {
-                    var sampleState = rawSamples[sk];
-                    var tSec = sampleState.timeMs / 1000.0;
-
-                    // Normalize telemetry cursor state
-                    var curType = (sampleState.cursorType || sampleState.cursorVisualType || "").toLowerCase();
-                    var activeState = "arrow";
-
-                    if (sampleState.interactionType === "click" || sampleState.interactionType === "double-click") {
-                        activeState = stateLayers["pointer"] ? "pointer" : "arrow";
-                    } else if (curType === "pointer" || curType === "hand" || curType === "pointinghand") {
-                        activeState = stateLayers["pointer"] ? "pointer" : "arrow";
-                    } else if (curType === "text" || curType === "ibeam" || curType === "ibeamstroke") {
-                        activeState = stateLayers["text"] ? "text" : "arrow";
-                    } else if (curType === "crosshair" || curType === "cross") {
-                        activeState = stateLayers["crosshair"] ? "crosshair" : "arrow";
-                    } else if (curType === "open-hand" || curType === "grab" || curType === "openhand") {
-                        activeState = stateLayers["open-hand"] ? "open-hand" : "arrow";
-                    } else if (curType === "closed-hand" || curType === "grabbing" || curType === "closedhand") {
-                        activeState = stateLayers["closed-hand"] ? "closed-hand" : "arrow";
-                    } else if (curType === "resize-ew" || curType === "resize-horizontal" || curType === "resizeeastwest") {
-                        activeState = stateLayers["resize-ew"] ? "resize-ew" : "arrow";
-                    } else if (curType === "resize-ns" || curType === "resize-vertical" || curType === "resizenorthsouth") {
-                        activeState = stateLayers["resize-ns"] ? "resize-ns" : "arrow";
-                    } else if (curType === "not-allowed" || curType === "block") {
-                        activeState = stateLayers["not-allowed"] ? "not-allowed" : "arrow";
-                    } else if (curType === "wait" || curType === "busy" || curType === "beachball") {
-                        activeState = stateLayers["wait"] ? "wait" : "arrow";
-                    }
-
-                    if (activeState !== lastState || sk === 0) {
-                        for (var stKey in stateLayers) {
-                            var op = (stKey === activeState) ? 100.0 : 0.0;
-                            stateLayers[stKey].transform.opacity.setValueAtTime(tSec, op);
+                    for (var sKey in cursorStateLayers) {
+                        if (cursorStateLayers.hasOwnProperty(sKey)) {
+                            var opProp = cursorStateLayers[sKey].transform.opacity;
+                            var targetOpacity = (sKey === activeState) ? 100.0 : 0.0;
+                            opProp.setValueAtTime(run.startSec, targetOpacity);
+                            var kIdxVal = opProp.nearestKeyIndex(run.startSec);
+                            try {
+                                opProp.setInterpolationTypeAtKey(kIdxVal, KeyframeInterpolationType.HOLD);
+                            } catch (eHold) {}
                         }
-                        lastState = activeState;
-                    }
-                }
-
-                // Apply HOLD interpolation on all state opacity keyframes
-                for (var sName in stateLayers) {
-                    var opProp = stateLayers[sName].transform.opacity;
-                    var nOpKeys = opProp.numKeys;
-                    for (var kIdx = 1; kIdx <= nOpKeys; kIdx++) {
-                        try {
-                            opProp.setInterpolationTypeAtKey(kIdx, KeyframeInterpolationType.HOLD);
-                        } catch (eHold) {}
                     }
                 }
             }
 
-            // 15. Create Click Ripple VFX Layer (Transform Group fixed on rGroup, Positioned at exact Hotspot)
-            if (options.clickEffect !== "none" && clickSamplesList.length > 0) {
+            // 15. Create Two-Tier Studio Click Ripple VFX Layer (Pop Disc + Shockwave Ring)
+            var rippleOption = options.clickEffect || "#2563EB";
+            if (rippleOption !== "none" && clickSamplesList.length > 0) {
                 var rippleLayer = comp.layers.addShape();
                 rippleLayer.name = "TraceMotion_Click_Ripples";
                 rippleLayer.parent = cameraRig;
                 rippleLayer.transform.anchorPoint.setValue([0, 0]);
                 rippleLayer.transform.position.setValue([0, 0]);
                 rippleLayer.transform.scale.setValue([100, 100]);
-                rippleLayer.motionBlur = options.enableMotionBlur;
+                rippleLayer.motionBlur = options.enableMotionBlur !== false;
 
                 var rippleRoot = rippleLayer.property("ADBE Root Vectors Group");
-                var rgbColor = hexToRgb(options.clickEffectColor || "#2563EB");
-                var maxRadius = Math.max(40, baseCursorHeight * 1.95 * (options.clickEffectScale / 100.0));
+                var rippleHex = (rippleOption.indexOf("#") === 0) ? rippleOption : "#2563EB";
+                if (rippleOption === "white") rippleHex = "#FFFFFF";
+                else if (rippleOption === "emerald") rippleHex = "#10B981";
+                else if (rippleOption === "amber") rippleHex = "#F59E0B";
+
+                var rgbColor = hexToRgb(rippleHex);
+                var maxRadius = Math.max(38, baseCursorHeight * 1.85);
 
                 for (var rc = 0; rc < clickSamplesList.length; rc++) {
                     var clickSample = clickSamplesList[rc];
-                    var tClickStart = (clickSample.timeMs + 175) / 1000.0;
-                    var tClickEnd = tClickStart + 0.550;
+                    var mappedClickStart = timeMapFn(clickSample.timeMs / 1000.0).compSec;
+                    var tInnerEnd = mappedClickStart + 0.120;
+                    var tOuterEnd = mappedClickStart + 0.450;
 
+                    // Build Vector Hierarchy first
                     var rGroup = rippleRoot.addProperty("ADBE Vector Group");
                     rGroup.name = "Ripple_" + (rc + 1);
                     var rVectors = rGroup.property("ADBE Vectors Group");
 
-                    var ellipse = rVectors.addProperty("ADBE Vector Shape - Ellipse");
-                    var sizeProp = ellipse.property("ADBE Vector Ellipse Size");
+                    // Tier 1: Inner Soft Pop Disc
+                    var inEllipse = rVectors.addProperty("ADBE Vector Shape - Ellipse");
+                    var inFill = rVectors.addProperty("ADBE Vector Graphic - Fill");
 
-                    var stroke = rVectors.addProperty("ADBE Vector Graphic - Stroke");
-                    stroke.property("ADBE Vector Stroke Color").setValue([rgbColor[0], rgbColor[1], rgbColor[2], 1.0]);
-                    var strokeWProp = stroke.property("ADBE Vector Stroke Width");
+                    // Tier 2: Outer Shockwave Ring
+                    var outEllipse = rVectors.addProperty("ADBE Vector Shape - Ellipse");
+                    var outStroke = rVectors.addProperty("ADBE Vector Graphic - Stroke");
 
-                    // Transform Group is on rGroup (Vector Group), NOT rVectors!
                     var transGroup = rGroup.property("ADBE Vector Transform Group");
+
+                    // Query properties cleanly after all addProperty calls to avoid ExtendScript reference invalidation
+                    var inSizeProp = inEllipse.property("ADBE Vector Ellipse Size");
+                    var inFillProp = inFill.property("ADBE Vector Fill Color");
+                    var outSizeProp = outEllipse.property("ADBE Vector Ellipse Size");
+                    var outStrokeColProp = outStroke.property("ADBE Vector Stroke Color");
+                    var outStrokeWProp = outStroke.property("ADBE Vector Stroke Width");
                     var posProp = transGroup.property("ADBE Vector Position");
                     var opacProp = transGroup.property("ADBE Vector Group Opacity");
 
-                    // Set ripple center exactly at the calibrated click hotspot coordinates
                     posProp.setValue([clickSample.cx * footageW, clickSample.cy * footageH]);
+                    inFillProp.setValue([rgbColor[0], rgbColor[1], rgbColor[2], 0.35]);
+                    outStrokeColProp.setValue([rgbColor[0], rgbColor[1], rgbColor[2], 0.85]);
 
                     opacProp.setValueAtTime(0, 0.0);
-                    sizeProp.setValueAtTime(0, [0, 0]);
+                    inSizeProp.setValueAtTime(0, [0, 0]);
+                    outSizeProp.setValueAtTime(0, [0, 0]);
 
-                    if (tClickStart > 0.02) {
-                        opacProp.setValueAtTime(tClickStart - 0.016, 0.0);
-                        sizeProp.setValueAtTime(tClickStart - 0.016, [0, 0]);
+                    if (mappedClickStart > 0.02) {
+                        opacProp.setValueAtTime(mappedClickStart - 0.016, 0.0);
+                        inSizeProp.setValueAtTime(mappedClickStart - 0.016, [0, 0]);
+                        outSizeProp.setValueAtTime(mappedClickStart - 0.016, [0, 0]);
                     }
 
-                    opacProp.setValueAtTime(tClickStart, 65.0);
-                    opacProp.setValueAtTime(tClickEnd, 0.0);
-                    opacProp.setValueAtTime(tClickEnd + 0.016, 0.0);
+                    // Master Opacity
+                    opacProp.setValueAtTime(mappedClickStart, 85.0);
+                    opacProp.setValueAtTime(tOuterEnd, 0.0);
+                    opacProp.setValueAtTime(tOuterEnd + 0.016, 0.0);
 
-                    sizeProp.setValueAtTime(tClickStart, [4, 4]);
-                    sizeProp.setValueAtTime(tClickEnd, [maxRadius * 2, maxRadius * 2]);
-                    sizeProp.setValueAtTime(tClickEnd + 0.016, [0, 0]);
+                    // Inner Pop Disc Keyframes
+                    inSizeProp.setValueAtTime(mappedClickStart, [0, 0]);
+                    inSizeProp.setValueAtTime(tInnerEnd, [28, 28]);
+                    inSizeProp.setValueAtTime(tInnerEnd + 0.016, [0, 0]);
 
-                    strokeWProp.setValueAtTime(tClickStart, 2.8);
-                    strokeWProp.setValueAtTime(tClickEnd, 0.5);
+                    // Outer Shockwave Ring Keyframes
+                    outSizeProp.setValueAtTime(mappedClickStart, [4, 4]);
+                    outSizeProp.setValueAtTime(tOuterEnd, [maxRadius * 2, maxRadius * 2]);
+                    outSizeProp.setValueAtTime(tOuterEnd + 0.016, [0, 0]);
+
+                    // Dynamic Stroke Taper
+                    outStrokeWProp.setValueAtTime(mappedClickStart, 3.2);
+                    outStrokeWProp.setValueAtTime(tOuterEnd, 0.6);
 
                     var cubicEase = new KeyframeEase(0, 85.0);
                     try {
-                        var kStart = sizeProp.nearestKeyIndex(tClickStart);
-                        var kEnd = sizeProp.nearestKeyIndex(tClickEnd);
-                        SafeProp.setTemporalEase(sizeProp, kStart, cubicEase, cubicEase);
-                        SafeProp.setTemporalEase(sizeProp, kEnd, cubicEase, cubicEase);
+                        var kStart = outSizeProp.nearestKeyIndex(mappedClickStart);
+                        var kEnd = outSizeProp.nearestKeyIndex(tOuterEnd);
+                        SafeProp.setTemporalEase(outSizeProp, kStart, cubicEase, cubicEase);
+                        SafeProp.setTemporalEase(outSizeProp, kEnd, cubicEase, cubicEase);
                     } catch (eEase) {}
                 }
             }
 
-            // Lock Background Layer at the very end
             if (bgLayer) {
                 try { bgLayer.locked = true; } catch (lockErr) {}
             }
@@ -1600,11 +1815,12 @@
                 alert(
                     "TraceMotion Rig Generated Successfully!\n\n" +
                     "• Comp: " + comp.name + " (" + compW + "x" + compH + " @ " + fps + " FPS)\n" +
-                    "• Window Framing: " + (options.cornerRadius || 20) + "px rounded corners & soft drop shadows\n" +
+                    "• Window Framing: " + (options.cornerRadius !== undefined ? options.cornerRadius : 20) + "px rounded corners & soft drop shadows\n" +
                     "• Background: " + (bgLayer ? bgLayer.name : "None") + "\n" +
                     "• Selected Cursor: " + styleDef.label + " (" + cursorStateNames.length + " states)\n" +
                     "• Smart Auto-Zoom: " + targetZoomScale + "x (" + options.zoomMode + ")\n" +
-                    "• Zero Render Artifacts: Verified clean ripple & track matte rig",
+                    (telemetryAnalysis.typingIntervals.length > 0 ? ("• Typing Speed-Up: 2.0x playback on " + telemetryAnalysis.typingIntervals.length + " typing segment(s)\n") : "") +
+                    "• Zero Render Artifacts: Verified two-tier ripple & straight-line zoom rig",
                     "TraceMotion Complete"
                 );
             }
@@ -1628,734 +1844,690 @@
     }
 
     // =========================================================================
-    // Responsive ScriptUI Studio Panel (Modern Dark Palette, Non-Resetting Scroll)
+    // Responsive ScriptUI Studio Panel (1:1 with tracemotion_studio_ui_ux_prototype.html)
     // =========================================================================
     function buildUI(thisObj) {
-        var isPanel = (thisObj instanceof Panel);
-        var win = isPanel ? thisObj : new Window("palette", "TraceMotion Studio", undefined, { resizeable: true });
+        var win = (thisObj instanceof Panel)
+            ? thisObj
+            : new Window("palette", "TraceMotion Studio", undefined, { resizeable: true });
 
         win.orientation = "column";
         win.alignChildren = ["fill", "top"];
         win.spacing = 6;
-        win.margins = 8;
+        win.margins = [10, 8, 10, 8];
 
-        // Custom Dark Palette Styling
         try {
-            var darkBg = win.graphics.newBrush(win.graphics.BrushType.SOLID_COLOR, [0.14, 0.14, 0.15, 1.0]);
-            win.graphics.backgroundColor = darkBg;
+            var bgCol = [0.067, 0.071, 0.086, 1.0]; // #111216
+            win.graphics.backgroundColor = win.graphics.newBrush(win.graphics.BrushType.SOLID_COLOR, bgCol);
         } catch (e) {}
 
-        // --- Header Banner (Fixed at Top) ---
+        // 1. Header Group
         var headerGrp = win.add("group");
         headerGrp.orientation = "row";
-        headerGrp.alignChildren = ["fill", "center"];
+        headerGrp.alignChildren = ["left", "center"];
+        headerGrp.alignment = ["fill", "top"];
         headerGrp.spacing = 8;
+        headerGrp.margins = [0, 2, 0, 4];
 
-        var headerTextGrp = headerGrp.add("group");
-        headerTextGrp.orientation = "column";
-        headerTextGrp.alignChildren = ["left", "center"];
-        headerTextGrp.spacing = 2;
+        var emblemBox = headerGrp.add("panel", [0, 0, 26, 26], undefined, { borderStyle: "none" });
+        emblemBox.size = [26, 26];
+        emblemBox.onDraw = function () {
+            var g = this.graphics;
+            var w = 26, h = 26;
+            var bgB = g.newBrush(g.BrushType.SOLID_COLOR, [0.145, 0.388, 0.922, 1.0]);
+            g.rectPath(0, 0, w, h);
+            g.fillPath(bgB);
+            var pen = g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 1.0], 1.5);
+            g.newPath();
+            g.moveTo(7, 5); g.lineTo(19, 5); g.lineTo(19, 17); g.lineTo(7, 17); g.closePath();
+            g.strokePath(pen);
+            g.newPath();
+            g.moveTo(11, 10); g.lineTo(16, 13); g.lineTo(14, 15); g.lineTo(11, 10);
+            var fillW = g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 1.0, 1.0, 1.0]);
+            g.fillPath(fillW);
+        };
 
-        var titleTxt = headerTextGrp.add("statictext", undefined, "TraceMotion Studio");
-        try { titleTxt.graphics.font = ScriptUI.newFont("Verdana", "Bold", 14); } catch (e) {}
-        var subTxt = headerTextGrp.add("statictext", undefined, "Recordly Smart Zoom & Precision Framing Rig");
+        var titleCol = headerGrp.add("group");
+        titleCol.orientation = "column";
+        titleCol.alignChildren = ["left", "center"];
+        titleCol.spacing = 1;
+
+        var titleTxt = titleCol.add("statictext", undefined, "TraceMotion Studio");
+        try { titleTxt.graphics.font = ScriptUI.newFont("Verdana", "Bold", 13); } catch (e) {}
+        try { titleTxt.graphics.foregroundColor = titleTxt.graphics.newPen(titleTxt.graphics.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 1.0], 1); } catch (e) {}
+
+        var subTxt = titleCol.add("statictext", undefined, "Recordly Smart Framing & Cursor Rig");
+        try { subTxt.graphics.font = ScriptUI.newFont("Verdana", "Regular", 9); } catch (e) {}
+        try { subTxt.graphics.foregroundColor = subTxt.graphics.newPen(subTxt.graphics.PenType.SOLID_COLOR, [0.65, 0.68, 0.75, 1.0], 1); } catch (e) {}
 
         var activeComp = getActiveComp();
         var hasActiveRig = !!(activeComp && activeComp.layer("TraceMotion_Camera_Controller"));
-
-        var aeVerStr = (typeof app !== "undefined" && app.version) ? String(app.version) : "17.0";
-        var aeMajorVer = parseFloat(aeVerStr) || 17.0;
-        var isAE2020 = (aeMajorVer >= 17.0 && aeMajorVer < 18.0);
-
-        var statusTxt = headerGrp.add("statictext", undefined, hasActiveRig ? "● Rig Active: " + activeComp.name : ("○ Ready (" + (isAE2020 ? "AE 2020" : "AE v" + Math.floor(aeMajorVer)) + ")"));
+        var statusTxt = headerGrp.add("statictext", undefined, hasActiveRig ? "● Rig Active" : "Ready (AE 2020+)");
         statusTxt.alignment = ["right", "center"];
+        try { statusTxt.graphics.font = ScriptUI.newFont("Verdana", "Regular", 9); } catch (e) {}
+        try {
+            var stCol = hasActiveRig ? [0.2, 0.8, 0.4, 1.0] : [0.6, 0.7, 0.9, 1.0];
+            statusTxt.graphics.foregroundColor = statusTxt.graphics.newPen(statusTxt.graphics.PenType.SOLID_COLOR, stCol, 1);
+        } catch (e) {}
+
+        // 2. Interactive Composition Preview Stage (130px height)
+        var previewStage = win.add("panel", undefined, undefined, { borderStyle: "none" });
+        previewStage.preferredSize = [-1, 128];
+        previewStage.minimumSize = [-1, 90];
+        previewStage.alignment = ["fill", "top"];
+
+        var currentBgKey = getPref("selectedBgKey", "tahoe-light.jpg");
+        var currentCursorKey = getPref("selectedCursorKey", "tahoe");
+        var currentZoomScale = parseFloat(getPref("selectedZoomScale", "1.80")) || 1.80;
+        var currentCornerRadius = parseInt(getPref("selectedCornerRadius", "20"), 10) || 20;
+        var currentRippleColor = getPref("selectedRippleColor", "#2563EB");
+        var previewCursorImg = null;
+        var previewBgImg = null;
+
+        function refreshPreviewAssets() {
+            var cF = getCursorPreviewFile(currentCursorKey);
+            if (cF && cF.exists) {
+                try { previewCursorImg = ScriptUI.newImage(cF); } catch (e) { previewCursorImg = null; }
+            } else {
+                previewCursorImg = null;
+            }
+
+            var wF = getWallpaperAssetFile(currentBgKey.indexOf(".") > 0 ? currentBgKey : (currentBgKey + ".jpg"));
+            if (wF && wF.exists) {
+                try { previewBgImg = ScriptUI.newImage(wF); } catch (e) { previewBgImg = null; }
+            } else {
+                previewBgImg = null;
+            }
+        }
+        refreshPreviewAssets();
+
+        var stageClickRipple = null; // { x, y, startTime }
+        previewStage.onDraw = function () {
+            var g = this.graphics;
+            var w = this.size[0] || 320;
+            var h = this.size[1] || 128;
+            if (w <= 0 || h <= 0) return;
+
+            // Draw Background
+            if (currentBgKey === "none") {
+                var bgB = g.newBrush(g.BrushType.SOLID_COLOR, [0.11, 0.12, 0.15, 1.0]);
+                g.rectPath(0, 0, w, h);
+                g.fillPath(bgB);
+            } else if (previewBgImg) {
+                try {
+                    g.drawImage(previewBgImg, 0, 0, w, h);
+                } catch (eImg) {
+                    var fallbackB = g.newBrush(g.BrushType.SOLID_COLOR, [0.15, 0.25, 0.45, 1.0]);
+                    g.rectPath(0, 0, w, h);
+                    g.fillPath(fallbackB);
+                }
+            } else {
+                var bgPr = BACKGROUND_PRESETS[currentBgKey] || BACKGROUND_PRESETS["tahoe-dawn"];
+                var steps = 24;
+                var sw = w / steps;
+                for (var i = 0; i < steps; i++) {
+                    var t = i / (steps - 1);
+                    var r = bgPr.start[0] + (bgPr.end[0] - bgPr.start[0]) * t;
+                    var gr = bgPr.start[1] + (bgPr.end[1] - bgPr.start[1]) * t;
+                    var b = bgPr.start[2] + (bgPr.end[2] - bgPr.start[2]) * t;
+                    var sBr = g.newBrush(g.BrushType.SOLID_COLOR, [r, gr, b, 1.0]);
+                    g.rectPath(Math.floor(i * sw), 0, Math.ceil(sw) + 1, h);
+                    g.fillPath(sBr);
+                }
+            }
+
+            // Draw Centered Mock Screen Recording Window
+            var winW = Math.round(w * 0.74);
+            var winH = Math.round(h * 0.72);
+            var winX = Math.round((w - winW) / 2);
+            var winY = Math.round((h - winH) / 2);
+
+            // Window Drop Shadow
+            var shB = g.newBrush(g.BrushType.SOLID_COLOR, [0.0, 0.0, 0.0, 0.45]);
+            g.rectPath(winX + 2, winY + 4, winW, winH);
+            g.fillPath(shB);
+
+            // Window Body
+            var wBodyB = g.newBrush(g.BrushType.SOLID_COLOR, [0.08, 0.09, 0.11, 1.0]);
+            g.rectPath(winX, winY, winW, winH);
+            g.fillPath(wBodyB);
+
+            var wBorderP = g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.18], 1);
+            g.rectPath(winX, winY, winW, winH);
+            g.strokePath(wBorderP);
+
+            // Mock macOS Titlebar
+            var tBarB = g.newBrush(g.BrushType.SOLID_COLOR, [0.13, 0.14, 0.17, 1.0]);
+            g.rectPath(winX, winY, winW, 14);
+            g.fillPath(tBarB);
+
+            // Titlebar Dots (Red, Yellow, Green)
+            var dotRed = g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 0.37, 0.34, 1.0]);
+            g.rectPath(winX + 6, winY + 4, 5, 5); g.fillPath(dotRed);
+            var dotYel = g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 0.74, 0.18, 1.0]);
+            g.rectPath(winX + 14, winY + 4, 5, 5); g.fillPath(dotYel);
+            var dotGrn = g.newBrush(g.BrushType.SOLID_COLOR, [0.16, 0.78, 0.25, 1.0]);
+            g.rectPath(winX + 22, winY + 4, 5, 5); g.fillPath(dotGrn);
+
+            // Draw Click Ripple if triggered
+            if (stageClickRipple && currentRippleColor !== "none") {
+                var rHex = currentRippleColor.indexOf("#") === 0 ? currentRippleColor : "#2563EB";
+                var rRgb = hexToRgb(rHex);
+                var ripP = g.newPen(g.PenType.SOLID_COLOR, [rRgb[0], rRgb[1], rRgb[2], 0.8], 2);
+                g.rectPath(stageClickRipple.x - 14, stageClickRipple.y - 14, 28, 28);
+                g.strokePath(ripP);
+            }
+
+            // Draw Real Cursor Sprite
+            var curX = winX + Math.round(winW * 0.52);
+            var curY = winY + Math.round(winH * 0.48);
+            if (previewCursorImg) {
+                try {
+                    g.drawImage(previewCursorImg, curX, curY, 22, 22);
+                } catch (eC) {}
+            } else {
+                // Vector Arrow Fallback
+                g.newPath();
+                g.moveTo(curX, curY);
+                g.lineTo(curX, curY + 14);
+                g.lineTo(curX + 4, curY + 11);
+                g.lineTo(curX + 8, curY + 16);
+                g.lineTo(curX + 10, curY + 15);
+                g.lineTo(curX + 6, curY + 10);
+                g.lineTo(curX + 11, curY + 10);
+                g.closePath();
+                var cFill = g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 1.0, 1.0, 1.0]);
+                g.fillPath(cFill);
+                var cPen = g.newPen(g.PenType.SOLID_COLOR, [0.08, 0.08, 0.10, 1.0], 1.2);
+                g.strokePath(cPen);
+            }
+
+            // Top-left HUD Pill
+            var hudB = g.newBrush(g.BrushType.SOLID_COLOR, [0.0, 0.0, 0.0, 0.55]);
+            g.rectPath(8, 7, 115, 16);
+            g.fillPath(hudB);
+            var hudPen = g.newPen(g.PenType.SOLID_COLOR, [0.85, 0.88, 0.95, 1.0], 1);
+            g.drawString("Click to test ripple", hudPen, 14, 19);
+
+            // Top-right Zoom Badge
+            g.rectPath(w - 74, 7, 66, 16);
+            g.fillPath(hudB);
+            var zPen = g.newPen(g.PenType.SOLID_COLOR, [0.35, 0.70, 1.0, 1.0], 1);
+            g.drawString(currentZoomScale.toFixed(2) + "x Zoom", zPen, w - 68, 19);
+        };
+
+        previewStage.addEventListener("mousedown", function (e) {
+            stageClickRipple = { x: e.clientX, y: e.clientY };
+            previewStage.hide(); previewStage.show();
+        });
+
+        // 3. 3-Tab Segmented Pill Navigation Bar (Setup | Cursor | Frame - No Emojis)
+        var tabBar = win.add("group");
+        tabBar.orientation = "row";
+        tabBar.alignment = ["fill", "top"];
+        tabBar.spacing = 4;
+        tabBar.margins = [0, 2, 0, 2];
+
+        var btnTabSetup = tabBar.add("button", undefined, "Setup");
+        btnTabSetup.alignment = ["fill", "center"];
+        btnTabSetup.preferredSize.height = 28;
+
+        var btnTabCursor = tabBar.add("button", undefined, "Cursor");
+        btnTabCursor.alignment = ["fill", "center"];
+        btnTabCursor.preferredSize.height = 28;
+
+        var btnTabFrame = tabBar.add("button", undefined, "Frame");
+        btnTabFrame.alignment = ["fill", "center"];
+        btnTabFrame.preferredSize.height = 28;
+
+        // Container holding the 3 Tab Panels
+        var tabContainer = win.add("group");
+        tabContainer.orientation = "column";
+        tabContainer.alignment = ["fill", "fill"];
+        tabContainer.alignChildren = ["fill", "top"];
+        tabContainer.spacing = 0;
+        tabContainer.margins = 0;
 
         // =====================================================================
-        // SCROLLABLE CONTAINER (Responsive Viewport with Scrollbar)
+        // TAB 1: SETUP PANEL
         // =====================================================================
-        var outerScrollBox = win.add("group");
-        outerScrollBox.orientation = "row";
-        outerScrollBox.alignment = ["fill", "fill"];
-        outerScrollBox.alignChildren = ["fill", "fill"];
-        outerScrollBox.spacing = 3;
-        outerScrollBox.margins = 0;
+        var tabSetup = tabContainer.add("group");
+        tabSetup.orientation = "column";
+        tabSetup.alignment = ["fill", "fill"];
+        tabSetup.alignChildren = ["fill", "top"];
+        tabSetup.spacing = 8;
+        tabSetup.margins = [0, 4, 0, 4];
 
-        var scrollViewport = outerScrollBox.add("group");
-        scrollViewport.orientation = "column";
-        scrollViewport.alignment = ["fill", "fill"];
-        scrollViewport.alignChildren = ["fill", undefined];
-        scrollViewport.spacing = 0;
-        scrollViewport.margins = 0;
+        // Capture Source Card
+        var srcCard = tabSetup.add("panel", undefined, undefined, { borderStyle: "gray" });
+        srcCard.orientation = "column";
+        srcCard.alignChildren = ["fill", "top"];
+        srcCard.spacing = 6;
+        srcCard.margins = 8;
 
-        var contentGroup = scrollViewport.add("group");
-        contentGroup.orientation = "column";
-        contentGroup.alignment = ["fill", "top"];
-        contentGroup.alignChildren = ["fill", "top"];
-        contentGroup.spacing = 6;
-        contentGroup.margins = [0, 0, 4, 0];
+        var srcHeaderRow = srcCard.add("group");
+        srcHeaderRow.orientation = "row";
+        var srcTitle = srcHeaderRow.add("statictext", undefined, "Capture Source");
+        try { srcTitle.graphics.font = ScriptUI.newFont("Verdana", "Bold", 10); } catch (e) {}
+        try { srcTitle.graphics.foregroundColor = srcTitle.graphics.newPen(srcTitle.graphics.PenType.SOLID_COLOR, [0.7, 0.72, 0.8, 1], 1); } catch (e) {}
 
-        // Dedicated Scroll Bar Column with Mini Arrow Buttons
-        var scrollCol = outerScrollBox.add("group");
-        scrollCol.orientation = "column";
-        scrollCol.alignment = ["right", "fill"];
-        scrollCol.alignChildren = ["center", "fill"];
-        scrollCol.spacing = 2;
-        scrollCol.margins = [0, 0, 0, 0];
-        scrollCol.preferredSize.width = 16;
+        var vidRow = srcCard.add("group");
+        vidRow.orientation = "row";
+        vidRow.alignChildren = ["fill", "center"];
+        vidRow.spacing = 6;
 
-        var btnScrollUp = scrollCol.add("button", undefined, "▲");
-        btnScrollUp.preferredSize = [16, 16];
-        btnScrollUp.helpTip = "Scroll panel upwards";
+        var videoPathInput = vidRow.add("edittext", undefined, "");
+        videoPathInput.alignment = ["fill", "center"];
+        videoPathInput.preferredSize.height = 24;
 
-        var scrollBar = scrollCol.add("scrollbar", undefined, 0, 0, 100);
-        scrollBar.alignment = ["fill", "fill"];
-        scrollBar.preferredSize.width = 16;
-        scrollBar.visible = true;
-
-        var btnScrollDown = scrollCol.add("button", undefined, "▼");
-        btnScrollDown.preferredSize = [16, 16];
-        btnScrollDown.helpTip = "Scroll panel downwards";
-
-        // --- SECTION 1: Source Media & Telemetry ---
-        var secMedia = contentGroup.add("panel", undefined, "1. Source Media & Telemetry Ingest");
-        secMedia.orientation = "column";
-        secMedia.alignChildren = ["fill", "top"];
-        secMedia.spacing = 5;
-        secMedia.margins = 8;
-
-        var videoRow = secMedia.add("group");
-        var vidLbl = videoRow.add("statictext", undefined, "Video Footage:");
-        vidLbl.preferredSize.width = 90;
-        var videoPathInput = videoRow.add("edittext", undefined, "");
-        videoPathInput.preferredSize.width = 160;
-        videoPathInput.helpTip = "Screen recording video file (MP4, MOV, MKV, WebM) captured via OBS or Recordly.";
-        var videoBrowseBtn = videoRow.add("button", undefined, "Browse...");
-        videoBrowseBtn.preferredSize.width = 65;
-
-        var jsonRow = secMedia.add("group");
-        var jsonLbl = jsonRow.add("statictext", undefined, "Cursor JSON:");
-        jsonLbl.preferredSize.width = 90;
-        var jsonPathInput = jsonRow.add("edittext", undefined, "");
-        jsonPathInput.preferredSize.width = 160;
-        jsonPathInput.helpTip = "Companion mouse telemetry file (.cursor.json) containing synchronized cursor coordinates and click events.";
-        var jsonBrowseBtn = jsonRow.add("button", undefined, "Browse...");
-        jsonBrowseBtn.preferredSize.width = 65;
+        var btnBrowseVid = vidRow.add("button", undefined, "Browse...");
+        btnBrowseVid.preferredSize = [65, 24];
 
         var selectedVideoFile = null;
         var selectedJsonFile = null;
 
-        videoBrowseBtn.onClick = function () {
+        // Auto-Paired Telemetry Sync Badge
+        var syncBadgeRow = srcCard.add("group");
+        syncBadgeRow.orientation = "row";
+        syncBadgeRow.alignChildren = ["left", "center"];
+        syncBadgeRow.spacing = 6;
+
+        var syncDot = syncBadgeRow.add("statictext", undefined, "●");
+        try { syncDot.graphics.foregroundColor = syncDot.graphics.newPen(syncDot.graphics.PenType.SOLID_COLOR, [0.2, 0.8, 0.4, 1], 1); } catch (e) {}
+
+        var syncText = syncBadgeRow.add("statictext", undefined, "Auto-paired telemetry (.cursor.json)");
+        syncText.alignment = ["fill", "center"];
+        try { syncText.graphics.font = ScriptUI.newFont("Verdana", "Regular", 9); } catch (e) {}
+        try { syncText.graphics.foregroundColor = syncText.graphics.newPen(syncText.graphics.PenType.SOLID_COLOR, [0.4, 0.8, 0.6, 1], 1); } catch (e) {}
+
+        var btnRelinkJson = syncBadgeRow.add("button", undefined, "Relink");
+        btnRelinkJson.preferredSize = [50, 20];
+
+        btnBrowseVid.onClick = function () {
             var f = File.openDialog("Select Screen Recording Video", "Video Files:*.mp4;*.mov;*.webm;*.mkv;*.*");
             if (f) {
                 selectedVideoFile = f;
                 videoPathInput.text = f.fsName;
-                var companion = new File(f.fsName + ".cursor.json");
-                if (companion.exists) {
-                    selectedJsonFile = companion;
-                    jsonPathInput.text = companion.fsName;
-                }
-            }
-        };
-
-        jsonBrowseBtn.onClick = function () {
-            var f = File.openDialog("Select Companion Cursor Telemetry JSON", "JSON Files:*.json");
-            if (f) {
-                selectedJsonFile = f;
-                jsonPathInput.text = f.fsName;
-            }
-        };
-
-        // --- SECTION 2: Cursor Model & Live Visual Preview ---
-        var secCursor = contentGroup.add("panel", undefined, "2. Cursor Model & Visual Assets");
-        secCursor.orientation = "column";
-        secCursor.alignChildren = ["fill", "top"];
-        secCursor.spacing = 5;
-        secCursor.margins = 8;
-
-        var cursorPreviewRow = secCursor.add("group");
-        cursorPreviewRow.orientation = "row";
-        cursorPreviewRow.alignChildren = ["left", "center"];
-        cursorPreviewRow.spacing = 10;
-        cursorPreviewRow.margins = [0, 2, 0, 4];
-
-        function drawVectorCursor(g, styleKey, boxW, boxH) {
-            var ox = Math.round(boxW * 0.28);
-            var oy = Math.round(boxH * 0.18);
-            var curPen = g.newPen(g.PenType.SOLID_COLOR, [0.08, 0.08, 0.10, 1.0], 1.5);
-            var fillBrush = g.newBrush(g.BrushType.SOLID_COLOR, [0.98, 0.98, 0.99, 1.0]);
-
-            if (styleKey === "windows11") {
-                g.newPath();
-                g.moveTo(ox, oy);
-                g.lineTo(ox, oy + 24);
-                g.lineTo(ox + 6, oy + 19);
-                g.lineTo(ox + 11, oy + 29);
-                g.lineTo(ox + 15, oy + 27);
-                g.lineTo(ox + 10, oy + 17);
-                g.lineTo(ox + 18, oy + 17);
-                g.closePath();
-                g.fillPath(fillBrush);
-                g.strokePath(curPen);
-            } else if (styleKey === "custom") {
-                g.newPath();
-                g.moveTo(ox + 2, oy);
-                g.lineTo(ox + 2, oy + 22);
-                g.lineTo(ox + 7, oy + 16);
-                g.lineTo(ox + 16, oy + 16);
-                g.closePath();
-                var figmaB = g.newBrush(g.BrushType.SOLID_COLOR, [0.10, 0.10, 0.12, 1.0]);
-                g.fillPath(figmaB);
-                var figmaP = g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 1.0], 1.2);
-                g.strokePath(figmaP);
-            } else {
-                g.newPath();
-                g.moveTo(ox, oy);
-                g.lineTo(ox, oy + 24);
-                g.lineTo(ox + 6, oy + 18);
-                g.lineTo(ox + 12, oy + 28);
-                g.lineTo(ox + 15, oy + 26);
-                g.lineTo(ox + 9, oy + 16);
-                g.lineTo(ox + 17, oy + 16);
-                g.closePath();
-                g.fillPath(fillBrush);
-                g.strokePath(curPen);
-            }
-        }
-
-        function drawHotspotPip(g, anchorX, anchorY, boxW, boxH) {
-            var ox = Math.round(boxW * 0.28);
-            var oy = Math.round(boxH * 0.18);
-            var px = Math.round(ox + anchorX * 26);
-            var py = Math.round(oy + anchorY * 26);
-            var targetBrush = g.newBrush(g.BrushType.SOLID_COLOR, [0.15, 0.75, 1.0, 1.0]);
-            var targetPen = g.newPen(g.PenType.SOLID_COLOR, [0.05, 0.15, 0.35, 1.0], 1);
-            g.rectPath(px - 2, py - 2, 5, 5);
-            g.fillPath(targetBrush);
-            g.rectPath(px - 2, py - 2, 5, 5);
-            g.strokePath(targetPen);
-        }
-
-        var cursorCanvas = cursorPreviewRow.add("panel", [0, 0, 56, 56], undefined, { borderStyle: "none" });
-        cursorCanvas.size = [56, 56];
-        cursorCanvas.preferredSize = [56, 56];
-        cursorCanvas.maximumSize = [56, 56];
-        cursorCanvas.currentStyleKey = "tahoe";
-        cursorCanvas.previewImage = null;
-
-        var initPrevF = getCursorPreviewFile("tahoe");
-        if (initPrevF && initPrevF.exists) {
-            try { cursorCanvas.previewImage = ScriptUI.newImage(initPrevF); } catch (e) {}
-        }
-
-        cursorCanvas.onDraw = function () {
-            var g = this.graphics;
-            var w = (this.size && this.size[0]) || 56;
-            var h = (this.size && this.size[1]) || 56;
-            if (w <= 0 || h <= 0) { w = 56; h = 56; }
-
-            var cardB = g.newBrush(g.BrushType.SOLID_COLOR, [0.16, 0.16, 0.18, 1.0]);
-            g.rectPath(0, 0, w, h);
-            g.fillPath(cardB);
-            var borderP = g.newPen(g.PenType.SOLID_COLOR, [0.30, 0.30, 0.35, 1.0], 1);
-            g.rectPath(0, 0, w, h);
-            g.strokePath(borderP);
-
-            var drewImg = false;
-            if (this.previewImage) {
-                try {
-                    g.drawImage(this.previewImage, 6, 6, 44, 44);
-                    drewImg = true;
-                } catch (e) {}
-            }
-
-            var sDef = CURSOR_MANIFEST[this.currentStyleKey] || CURSOR_MANIFEST.tahoe;
-            var aData = (sDef.cursors && sDef.cursors.arrow) || { anchorX: 0.14, anchorY: 0.06 };
-
-            if (!drewImg) {
-                drawVectorCursor(g, this.currentStyleKey, w, h);
-            }
-
-            drawHotspotPip(g, aData.anchorX, aData.anchorY, w, h);
-        };
-
-        var cursorMetaGrp = cursorPreviewRow.add("group");
-        cursorMetaGrp.orientation = "column";
-        cursorMetaGrp.alignChildren = ["left", "center"];
-        cursorMetaGrp.spacing = 2;
-
-        var cursorTitleTxt = cursorMetaGrp.add("statictext", undefined, "macOS Tahoe (Recordly Default)");
-        try { cursorTitleTxt.graphics.font = ScriptUI.newFont("Verdana", "Bold", 11); } catch (e) {}
-        var cursorHotspotTxt = cursorMetaGrp.add("statictext", undefined, "Hotspot: [14%, 6%]");
-        var cursorResTxt = cursorMetaGrp.add("statictext", undefined, "512px Retina Asset");
-
-        var styleRow = secCursor.add("group");
-        var styleLbl = styleRow.add("statictext", undefined, "Cursor Style:");
-        styleLbl.preferredSize.width = 90;
-        var cursorDropdown = styleRow.add("dropdownlist", undefined, [
-            "macOS Tahoe (Recordly Default)",
-            "macOS Classic",
-            "Windows 11 Fluent",
-            "Figma / Minimal",
-            "Vector Shape (Procedural)"
-        ]);
-        var savedStyleIdx = parseInt(getPref("cursorStyleIdx", "0"), 10);
-        cursorDropdown.selection = (savedStyleIdx >= 0 && savedStyleIdx < 5) ? savedStyleIdx : 0;
-
-        function updateCursorPreview(styleKey) {
-            var sDef = CURSOR_MANIFEST[styleKey] || CURSOR_MANIFEST.tahoe;
-            cursorCanvas.currentStyleKey = styleKey;
-            cursorTitleTxt.text = sDef.label;
-
-            var prevF = getCursorPreviewFile(styleKey);
-            cursorCanvas.previewImage = null;
-            if (prevF && prevF.exists) {
-                try { cursorCanvas.previewImage = ScriptUI.newImage(prevF); } catch (e) {}
-            }
-
-            var aData = (sDef.cursors && sDef.cursors.arrow) || { anchorX: 0, anchorY: 0 };
-            cursorHotspotTxt.text = "Hotspot: [" + Math.round(aData.anchorX * 100) + "%, " + Math.round(aData.anchorY * 100) + "%]";
-            cursorResTxt.text = sDef.folder ? "512px Retina Multi-State" : "Procedural Vector Shape";
-
-            try {
-                cursorCanvas.hide();
-                cursorCanvas.show();
-            } catch (e) {}
-        }
-
-        var styleKeys = ["tahoe", "macos", "windows11", "custom", "procedural"];
-        cursorDropdown.onChange = function () {
-            var selIdx = cursorDropdown.selection ? cursorDropdown.selection.index : 0;
-            var k = styleKeys[selIdx] || "tahoe";
-            updateCursorPreview(k);
-        };
-        updateCursorPreview(styleKeys[cursorDropdown.selection ? cursorDropdown.selection.index : 0]);
-
-        var radRow = secCursor.add("group");
-        var radLbl = radRow.add("statictext", undefined, "Asset Format:");
-        radLbl.preferredSize.width = 90;
-        var radPng = radRow.add("radiobutton", undefined, "PNG (Universal 2020+)");
-        var radSvg = radRow.add("radiobutton", undefined, "Vector SVG (AE 2024+)");
-
-        var canUseSvg = (aeMajorVer >= 24.0);
-        var savedUseSvg = (getPref("preferSvg", "false") === "true") && canUseSvg;
-        radPng.value = !savedUseSvg;
-        radSvg.value = savedUseSvg;
-        radSvg.enabled = canUseSvg;
-
-        var sizeRow = secCursor.add("group");
-        var sizeLbl = sizeRow.add("statictext", undefined, "Cursor Scale (%):");
-        sizeLbl.preferredSize.width = 90;
-        var sizeSlider = sizeRow.add("slider", undefined, 100, 40, 250);
-        sizeSlider.preferredSize.width = 145;
-        var sizeInput = sizeRow.add("edittext", undefined, getPref("cursorScalePct", "100"));
-        sizeInput.characters = 4;
-        sizeSlider.value = parseFloat(sizeInput.text) || 100;
-        sizeSlider.onChanging = function () { sizeInput.text = Math.round(sizeSlider.value); };
-        sizeInput.onChange = function () { sizeSlider.value = parseFloat(sizeInput.text) || 100; };
-
-        var chkDynamicStates = secCursor.add("checkbox", undefined, "Multi-State Switching (Arrow, Pointer, Text, Grab, Wait)");
-        chkDynamicStates.value = getPref("dynamicCursorStates", "true") === "true";
-        chkDynamicStates.helpTip = "Imports and dynamically switches all cursor states using calibrated hotspots and Hold keyframes.";
-
-        var chkSway = secCursor.add("checkbox", undefined, "Dynamic Velocity Sway (PI/18 Tilt Physics)");
-        chkSway.value = getPref("enableSway", "true") === "true";
-
-        var chkBounce = secCursor.add("checkbox", undefined, "Click Bounce Depression (350ms Half-Sine 84%)");
-        chkBounce.value = getPref("enableBounce", "true") === "true";
-
-        var fxRow = secCursor.add("group");
-        var fxLbl = fxRow.add("statictext", undefined, "Click Ripple VFX:");
-        fxLbl.preferredSize.width = 90;
-        var fxDropdown = fxRow.add("dropdownlist", undefined, ["Recordly Accent Ring", "None"]);
-        var savedFxIdx = parseInt(getPref("clickEffectIdx", "0"), 10);
-        fxDropdown.selection = (savedFxIdx >= 0 && savedFxIdx < 2) ? savedFxIdx : 0;
-
-        var colorRow = secCursor.add("group");
-        var colLbl = colorRow.add("statictext", undefined, "Ripple Color (Hex):");
-        colLbl.preferredSize.width = 90;
-        var colorInput = colorRow.add("edittext", undefined, getPref("clickColor", "#2563EB"));
-        colorInput.characters = 8;
-
-        // --- SECTION 3: Smart Zoom & Camera Engine ---
-        var secZoom = contentGroup.add("panel", undefined, "3. Smart Zoom & Camera Engine");
-        secZoom.orientation = "column";
-        secZoom.alignChildren = ["fill", "top"];
-        secZoom.spacing = 5;
-        secZoom.margins = 8;
-
-        var zoomModeRow = secZoom.add("group");
-        var zmModeLbl = zoomModeRow.add("statictext", undefined, "Zoom Engine:");
-        zmModeLbl.preferredSize.width = 90;
-        var zoomModeDropdown = zoomModeRow.add("dropdownlist", undefined, [
-            "Smart Auto-Cluster (Recordly Dwell & Clicks)",
-            "Continuous Deadband Follow",
-            "Manual Overview (100% Static)"
-        ]);
-        var savedZoomModeIdx = parseInt(getPref("zoomModeIdx", "0"), 10);
-        zoomModeDropdown.selection = (savedZoomModeIdx >= 0 && savedZoomModeIdx < 3) ? savedZoomModeIdx : 0;
-
-        var depthRow = secZoom.add("group");
-        var depthLbl = depthRow.add("statictext", undefined, "Zoom Scale Level:");
-        depthLbl.preferredSize.width = 90;
-        var depthDropdown = depthRow.add("dropdownlist", undefined, [
-            "1.25x (Subtle Detail)",
-            "1.50x (Moderate Focus)",
-            "1.80x (Recordly Signature Default)",
-            "2.20x (Close-Up)",
-            "3.50x (Macro Detail)"
-        ]);
-        var savedDepthIdx = parseInt(getPref("depthIdx", "2"), 10);
-        depthDropdown.selection = (savedDepthIdx >= 0 && savedDepthIdx < 5) ? savedDepthIdx : 2;
-
-        var smoothRow = secZoom.add("group");
-        var smLbl = smoothRow.add("statictext", undefined, "Spring Physics:");
-        smLbl.preferredSize.width = 90;
-        var smoothSlider = smoothRow.add("slider", undefined, 67, 10, 150);
-        smoothSlider.preferredSize.width = 145;
-        var smoothInput = smoothRow.add("edittext", undefined, getPref("cursorSmoothing", "0.67"));
-        smoothInput.characters = 4;
-        smoothSlider.value = Math.round((parseFloat(smoothInput.text) || 0.67) * 100);
-        smoothSlider.onChanging = function () { smoothInput.text = (smoothSlider.value / 100).toFixed(2); };
-        smoothInput.onChange = function () { smoothSlider.value = Math.round((parseFloat(smoothInput.text) || 0.67) * 100); };
-
-        var chkMotionBlur = secZoom.add("checkbox", undefined, "Native Composition Motion Blur");
-        chkMotionBlur.value = getPref("enableMotionBlur", "true") === "true";
-
-        // --- SECTION 4: Window Framing, Shadows & Backdrop ---
-        var secFrame = contentGroup.add("panel", undefined, "4. Window Framing, Shadows & Backdrop");
-        secFrame.orientation = "column";
-        secFrame.alignChildren = ["fill", "top"];
-        secFrame.spacing = 5;
-        secFrame.margins = 8;
-
-        var bgPreviewRow = secFrame.add("group");
-        bgPreviewRow.orientation = "row";
-        bgPreviewRow.alignChildren = ["left", "center"];
-        bgPreviewRow.spacing = 10;
-        bgPreviewRow.margins = [0, 2, 0, 4];
-
-        var bgCard = bgPreviewRow.add("panel", [0, 0, 84, 44], undefined, { borderStyle: "none" });
-        bgCard.size = [84, 44];
-        bgCard.preferredSize = [84, 44];
-        bgCard.maximumSize = [84, 44];
-
-        // Build list of all available wallpapers + gradients
-        var bgItems = [];
-        var bgItemKeys = [];
-
-        // Add 39 Recordly Wallpapers
-        for (var wpI = 0; wpI < RECORDLY_WALLPAPERS.length; wpI++) {
-            var wpObj = RECORDLY_WALLPAPERS[wpI];
-            bgItems.push(wpObj.label + " [Wallpaper]");
-            bgItemKeys.push(wpObj.filename);
-        }
-
-        // Add Gradient Presets
-        bgItems.push("Tahoe Dawn [Gradient]");
-        bgItemKeys.push("tahoe-dawn");
-        bgItems.push("Dark Studio [Gradient]");
-        bgItemKeys.push("dark-studio");
-        bgItems.push("Midnight Deep [Gradient]");
-        bgItemKeys.push("midnight-deep");
-        bgItems.push("Sequoia Azure [Gradient]");
-        bgItemKeys.push("sequoia-azure");
-        bgItems.push("Clean Charcoal Solid");
-        bgItemKeys.push("solid-charcoal");
-        bgItems.push("Transparent / None");
-        bgItemKeys.push("none");
-
-        var currentBgKey = getPref("selectedBgKey", "tahoe-light.jpg");
-        var savedBgIndex = 0;
-        for (var bIdx = 0; bIdx < bgItemKeys.length; bIdx++) {
-            if (bgItemKeys[bIdx] === currentBgKey) {
-                savedBgIndex = bIdx;
-                break;
-            }
-        }
-
-        bgCard.onDraw = function () {
-            var g = this.graphics;
-            var w = (this.size && this.size[0]) || 84;
-            var h = (this.size && this.size[1]) || 44;
-            if (w <= 0 || h <= 0) { w = 84; h = 44; }
-
-            if (currentBgKey === "none") {
-                var trB = g.newBrush(g.BrushType.SOLID_COLOR, [0.12, 0.12, 0.14, 1.0]);
-                g.rectPath(0, 0, w, h);
-                g.fillPath(trB);
-                var tPen = g.newPen(g.PenType.SOLID_COLOR, [0.60, 0.60, 0.65, 1.0], 1);
-                g.drawString("Transparent", tPen, 8, 16);
-                var bPen = g.newPen(g.PenType.SOLID_COLOR, [0.35, 0.35, 0.40, 1.0], 1);
-                g.rectPath(0, 0, w, h);
-                g.strokePath(bPen);
-                return;
-            }
-
-            var bData = BACKGROUND_PRESETS[currentBgKey];
-            if (!bData) {
-                // If it's a wallpaper file, draw an aesthetic blue/charcoal background card
-                bData = { start: [0.18, 0.35, 0.65], end: [0.08, 0.12, 0.22] };
-            }
-
-            var sCol = bData.start;
-            var eCol = bData.end;
-            var steps = 28;
-            var stripW = w / steps;
-
-            for (var i = 0; i < steps; i++) {
-                var t = i / (steps - 1);
-                var r = sCol[0] + (eCol[0] - sCol[0]) * t;
-                var gr = sCol[1] + (eCol[1] - sCol[1]) * t;
-                var b = sCol[2] + (eCol[2] - sCol[2]) * t;
-                var stripB = g.newBrush(g.BrushType.SOLID_COLOR, [r, gr, b, 1.0]);
-                g.rectPath(Math.floor(i * stripW), 0, Math.ceil(stripW) + 1, h);
-                g.fillPath(stripB);
-            }
-
-            var borderPen = g.newPen(g.PenType.SOLID_COLOR, [0.38, 0.38, 0.44, 1.0], 1);
-            g.rectPath(0, 0, w, h);
-            g.strokePath(borderPen);
-        };
-
-        var bgMetaGrp = bgPreviewRow.add("group");
-        bgMetaGrp.orientation = "column";
-        bgMetaGrp.alignChildren = ["left", "center"];
-        bgMetaGrp.spacing = 2;
-
-        var bgTitleTxt = bgMetaGrp.add("statictext", undefined, "Tahoe Light");
-        try { bgTitleTxt.graphics.font = ScriptUI.newFont("Verdana", "Bold", 11); } catch (e) {}
-        var bgTypeTxt = bgMetaGrp.add("statictext", undefined, "Recordly 4K Wallpaper");
-
-        var bgRow = secFrame.add("group");
-        var bgLbl = bgRow.add("statictext", undefined, "Backdrop Asset:");
-        bgLbl.preferredSize.width = 90;
-        var bgDropdown = bgRow.add("dropdownlist", undefined, bgItems);
-        bgDropdown.selection = savedBgIndex;
-
-        function updateBgPreview(key) {
-            currentBgKey = key;
-            if (key === "none") {
-                bgTitleTxt.text = "Transparent";
-                bgTypeTxt.text = "Edge-to-Edge Composition";
-            } else if (BACKGROUND_PRESETS[key]) {
-                var pr = BACKGROUND_PRESETS[key];
-                bgTitleTxt.text = pr.label.split(" [")[0];
-                bgTypeTxt.text = pr.isRadial ? "Radial Gradient Ramp" : "Linear Gradient Ramp";
-            } else {
-                // Look up in RECORDLY_WALLPAPERS
-                var label = key;
-                for (var w = 0; w < RECORDLY_WALLPAPERS.length; w++) {
-                    if (RECORDLY_WALLPAPERS[w].filename === key) {
-                        label = RECORDLY_WALLPAPERS[w].label;
+                var baseF = f.fsName.replace(/\.[^\.]+$/, "");
+                var candidates = [
+                    new File(f.fsName + ".cursor.json"),
+                    new File(baseF + ".cursor.json"),
+                    new File(baseF + ".tracemotion.json"),
+                    new File(f.fsName + ".json")
+                ];
+                for (var ci = 0; ci < candidates.length; ci++) {
+                    if (candidates[ci].exists) {
+                        selectedJsonFile = candidates[ci];
+                        syncText.text = "Paired: " + candidates[ci].name;
                         break;
                     }
                 }
-                bgTitleTxt.text = label;
-                bgTypeTxt.text = "4K / Retina Desktop Wallpaper";
             }
+        };
 
-            try {
-                bgCard.hide();
-                bgCard.show();
-            } catch (e) {}
+        btnRelinkJson.onClick = function () {
+            var f = File.openDialog("Select Companion Mouse Telemetry JSON", "JSON Files:*.json");
+            if (f) {
+                selectedJsonFile = f;
+                syncText.text = "Linked: " + f.name;
+            }
+        };
+
+        // Camera Zoom Mode (Auto Zoom | Follow | Static)
+        var zoomModeCard = tabSetup.add("group");
+        zoomModeCard.orientation = "column";
+        zoomModeCard.alignChildren = ["fill", "top"];
+        zoomModeCard.spacing = 3;
+
+        var zTitle = zoomModeCard.add("statictext", undefined, "Camera Zoom Mode");
+        try { zTitle.graphics.font = ScriptUI.newFont("Verdana", "Bold", 10); } catch (e) {}
+
+        var zoomRadioRow = zoomModeCard.add("group");
+        zoomRadioRow.orientation = "row";
+        zoomRadioRow.spacing = 4;
+
+        var radAutoZoom = zoomRadioRow.add("radiobutton", undefined, "Auto Zoom");
+        var radFollow = zoomRadioRow.add("radiobutton", undefined, "Follow");
+        var radStatic = zoomRadioRow.add("radiobutton", undefined, "Static");
+        radAutoZoom.value = true;
+
+        // Zoom Depth Slider
+        var zDepthRow = tabSetup.add("group");
+        zDepthRow.orientation = "row";
+        zDepthRow.alignChildren = ["fill", "center"];
+        zDepthRow.spacing = 6;
+
+        var zDepthLbl = zDepthRow.add("statictext", undefined, "Zoom Depth:");
+        zDepthLbl.preferredSize.width = 75;
+
+        var zDepthSlider = zDepthRow.add("slider", undefined, 180, 120, 320);
+        zDepthSlider.alignment = ["fill", "center"];
+
+        var zDepthValTxt = zDepthRow.add("statictext", undefined, "1.80x");
+        zDepthValTxt.preferredSize.width = 45;
+
+        zDepthSlider.onChanging = function () {
+            currentZoomScale = zDepthSlider.value / 100.0;
+            zDepthValTxt.text = currentZoomScale.toFixed(2) + "x";
+            savePref("selectedZoomScale", currentZoomScale.toFixed(2));
+            previewStage.hide(); previewStage.show();
+        };
+
+        // Motion Feel (Natural | Snappy | Silky | Raw)
+        var feelGrp = tabSetup.add("group");
+        feelGrp.orientation = "column";
+        feelGrp.alignChildren = ["fill", "top"];
+        feelGrp.spacing = 3;
+
+        var feelTitle = feelGrp.add("statictext", undefined, "Motion Feel");
+        try { feelTitle.graphics.font = ScriptUI.newFont("Verdana", "Bold", 10); } catch (e) {}
+
+        var feelRadioRow = feelGrp.add("group");
+        feelRadioRow.orientation = "row";
+        feelRadioRow.spacing = 4;
+
+        var radNatural = feelRadioRow.add("radiobutton", undefined, "Natural");
+        var radSnappy = feelRadioRow.add("radiobutton", undefined, "Snappy");
+        var radSilky = feelRadioRow.add("radiobutton", undefined, "Silky");
+        var radRaw = feelRadioRow.add("radiobutton", undefined, "Raw");
+        radNatural.value = true;
+
+        // Fine-Tune Physics Accordion
+        var accBtn = tabSetup.add("button", undefined, "Fine-Tune Physics (5/5 on) ▼");
+        accBtn.alignment = ["fill", "center"];
+        accBtn.preferredSize.height = 24;
+
+        var accBody = tabSetup.add("group");
+        accBody.orientation = "column";
+        accBody.alignChildren = ["left", "top"];
+        accBody.spacing = 3;
+        accBody.margins = [8, 2, 8, 2];
+        accBody.visible = false;
+
+        var chkAutoStates = accBody.add("checkbox", undefined, "Auto Cursor States (I-beam, pointer, hand)");
+        chkAutoStates.value = true;
+        var chkVelocitySway = accBody.add("checkbox", undefined, "Velocity Tilt Sway (Dynamic angle)");
+        chkVelocitySway.value = true;
+        var chkClickBounce = accBody.add("checkbox", undefined, "Click Bounce (84% compression)");
+        chkClickBounce.value = true;
+        var chkMotionBlur = accBody.add("checkbox", undefined, "Motion Blur (AE composition shutter)");
+        chkMotionBlur.value = true;
+        var chkTypingSpeedup = accBody.add("checkbox", undefined, "Typing Speed-Up (2.0x playback & zoom)");
+        chkTypingSpeedup.value = true;
+
+        accBtn.onClick = function () {
+            accBody.visible = !accBody.visible;
+            accBtn.text = accBody.visible ? "Fine-Tune Physics ▲" : "Fine-Tune Physics (5/5 on) ▼";
+            win.layout.resize();
+        };
+
+        // =====================================================================
+        // TAB 2: CURSOR PANEL
+        // =====================================================================
+        var tabCursor = tabContainer.add("group");
+        tabCursor.orientation = "column";
+        tabCursor.alignment = ["fill", "fill"];
+        tabCursor.alignChildren = ["fill", "top"];
+        tabCursor.spacing = 8;
+        tabCursor.margins = [0, 4, 0, 4];
+        tabCursor.visible = false;
+
+        var cStyleLbl = tabCursor.add("statictext", undefined, "Cursor Pack (10 Multi-States)");
+        try { cStyleLbl.graphics.font = ScriptUI.newFont("Verdana", "Bold", 10); } catch (e) {}
+
+        var cursorItems = ["macOS Tahoe (Default)", "macOS Classic (Retina)", "Windows 11 (Fluent)", "Figma Minimal (Sharp)"];
+        var cursorKeys = ["tahoe", "macos", "windows11", "custom"];
+        var cursorDropdown = tabCursor.add("dropdownlist", undefined, cursorItems);
+        var initCursorIdx = 0;
+        for (var ci = 0; ci < cursorKeys.length; ci++) {
+            if (cursorKeys[ci] === currentCursorKey) { initCursorIdx = ci; break; }
+        }
+        cursorDropdown.selection = initCursorIdx;
+
+        cursorDropdown.onChange = function () {
+            var sel = cursorDropdown.selection ? cursorDropdown.selection.index : 0;
+            currentCursorKey = cursorKeys[sel];
+            savePref("selectedCursorKey", currentCursorKey);
+            refreshPreviewAssets();
+            previewStage.hide(); previewStage.show();
+        };
+
+        // Cursor Size Slider
+        var cSizeRow = tabCursor.add("group");
+        cSizeRow.orientation = "row";
+        cSizeRow.alignChildren = ["fill", "center"];
+        cSizeRow.spacing = 6;
+
+        var cSizeLbl = cSizeRow.add("statictext", undefined, "Cursor Size:");
+        cSizeLbl.preferredSize.width = 75;
+
+        var cSizeSlider = cSizeRow.add("slider", undefined, 100, 50, 200);
+        cSizeSlider.alignment = ["fill", "center"];
+
+        var cSizeValTxt = cSizeRow.add("statictext", undefined, "100%");
+        cSizeValTxt.preferredSize.width = 45;
+
+        cSizeSlider.onChanging = function () {
+            var val = Math.round(cSizeSlider.value);
+            cSizeValTxt.text = val + "%";
+            savePref("selectedCursorSize", val.toString());
+        };
+
+        // Click Ripple Color Swatches (Cobalt | White | Emerald | Amber | Off)
+        var ripLbl = tabCursor.add("statictext", undefined, "Click Ripple Color");
+        try { ripLbl.graphics.font = ScriptUI.newFont("Verdana", "Bold", 10); } catch (e) {}
+
+        var ripSwatchRow = tabCursor.add("group");
+        ripSwatchRow.orientation = "row";
+        ripSwatchRow.spacing = 4;
+
+        var btnRipCobalt = ripSwatchRow.add("button", undefined, "Cobalt");
+        var btnRipWhite = ripSwatchRow.add("button", undefined, "White");
+        var btnRipEmerald = ripSwatchRow.add("button", undefined, "Emerald");
+        var btnRipAmber = ripSwatchRow.add("button", undefined, "Amber");
+        var btnRipOff = ripSwatchRow.add("button", undefined, "Off");
+
+        btnRipCobalt.onClick = function () { currentRippleColor = "#2563EB"; savePref("selectedRippleColor", currentRippleColor); previewStage.hide(); previewStage.show(); };
+        btnRipWhite.onClick = function () { currentRippleColor = "#FFFFFF"; savePref("selectedRippleColor", currentRippleColor); previewStage.hide(); previewStage.show(); };
+        btnRipEmerald.onClick = function () { currentRippleColor = "#10B981"; savePref("selectedRippleColor", currentRippleColor); previewStage.hide(); previewStage.show(); };
+        btnRipAmber.onClick = function () { currentRippleColor = "#F59E0B"; savePref("selectedRippleColor", currentRippleColor); previewStage.hide(); previewStage.show(); };
+        btnRipOff.onClick = function () { currentRippleColor = "none"; savePref("selectedRippleColor", currentRippleColor); previewStage.hide(); previewStage.show(); };
+
+        // =====================================================================
+        // TAB 3: FRAME PANEL
+        // =====================================================================
+        var tabFrame = tabContainer.add("group");
+        tabFrame.orientation = "column";
+        tabFrame.alignment = ["fill", "fill"];
+        tabFrame.alignChildren = ["fill", "top"];
+        tabFrame.spacing = 8;
+        tabFrame.margins = [0, 4, 0, 4];
+        tabFrame.visible = false;
+
+        var bgSelectLbl = tabFrame.add("statictext", undefined, "Backdrop Wallpaper");
+        try { bgSelectLbl.graphics.font = ScriptUI.newFont("Verdana", "Bold", 10); } catch (e) {}
+
+        // Visual Backdrop Tiles (Tahoe | Midnight | Azure | Cherry | Studio | None)
+        var tileRow1 = tabFrame.add("group");
+        tileRow1.orientation = "row";
+        tileRow1.spacing = 4;
+
+        var btnBgTahoe = tileRow1.add("button", undefined, "Tahoe Light");
+        var btnBgMidnight = tileRow1.add("button", undefined, "Midnight");
+        var btnBgAzure = tileRow1.add("button", undefined, "Azure");
+
+        var tileRow2 = tabFrame.add("group");
+        tileRow2.orientation = "row";
+        tileRow2.spacing = 4;
+
+        var btnBgCherry = tileRow2.add("button", undefined, "Cherry Pop");
+        var btnBgStudio = tileRow2.add("button", undefined, "Dark Studio");
+        var btnBgNone = tileRow2.add("button", undefined, "None");
+
+        btnBgTahoe.onClick = function () { currentBgKey = "tahoe-light.jpg"; refreshPreviewAssets(); savePref("selectedBgKey", currentBgKey); previewStage.hide(); previewStage.show(); };
+        btnBgMidnight.onClick = function () { currentBgKey = "midnight-8.jpg"; refreshPreviewAssets(); savePref("selectedBgKey", currentBgKey); previewStage.hide(); previewStage.show(); };
+        btnBgAzure.onClick = function () { currentBgKey = "sequoia-blue.jpg"; refreshPreviewAssets(); savePref("selectedBgKey", currentBgKey); previewStage.hide(); previewStage.show(); };
+        btnBgCherry.onClick = function () { currentBgKey = "cherrypop.jpg"; refreshPreviewAssets(); savePref("selectedBgKey", currentBgKey); previewStage.hide(); previewStage.show(); };
+        btnBgStudio.onClick = function () { currentBgKey = "dark-studio"; refreshPreviewAssets(); savePref("selectedBgKey", currentBgKey); previewStage.hide(); previewStage.show(); };
+        btnBgNone.onClick = function () { currentBgKey = "none"; refreshPreviewAssets(); savePref("selectedBgKey", currentBgKey); previewStage.hide(); previewStage.show(); };
+
+        // Full 39 Wallpapers Dropdown
+        var bgItemsList = [];
+        var bgKeysList = [];
+        for (var wp = 0; wp < RECORDLY_WALLPAPERS.length; wp++) {
+            bgItemsList.push(RECORDLY_WALLPAPERS[wp].label);
+            bgKeysList.push(RECORDLY_WALLPAPERS[wp].filename);
+        }
+        var bgDropdown = tabFrame.add("dropdownlist", undefined, bgItemsList);
+        bgDropdown.selection = 0;
+        bgDropdown.onChange = function () {
+            if (bgDropdown.selection) {
+                currentBgKey = bgKeysList[bgDropdown.selection.index];
+                savePref("selectedBgKey", currentBgKey);
+                refreshPreviewAssets();
+                previewStage.hide(); previewStage.show();
+            }
+        };
+
+        // Corner Radius Slider
+        var radRow = tabFrame.add("group");
+        radRow.orientation = "row";
+        radRow.alignChildren = ["fill", "center"];
+        radRow.spacing = 6;
+
+        var radLbl = radRow.add("statictext", undefined, "Corner Radius:");
+        radLbl.preferredSize.width = 85;
+
+        var radSlider = radRow.add("slider", undefined, currentCornerRadius, 0, 48);
+        radSlider.alignment = ["fill", "center"];
+
+        var radValTxt = radRow.add("statictext", undefined, currentCornerRadius + "px");
+        radValTxt.preferredSize.width = 40;
+
+        radSlider.onChanging = function () {
+            currentCornerRadius = Math.round(radSlider.value);
+            radValTxt.text = currentCornerRadius + "px";
+            savePref("selectedCornerRadius", currentCornerRadius.toString());
+            previewStage.hide(); previewStage.show();
+        };
+
+        // Window Margin Slider
+        var marginRow = tabFrame.add("group");
+        marginRow.orientation = "row";
+        marginRow.alignChildren = ["fill", "center"];
+        marginRow.spacing = 6;
+
+        var marginLbl = marginRow.add("statictext", undefined, "Window Margin:");
+        marginLbl.preferredSize.width = 85;
+
+        var marginSlider = marginRow.add("slider", undefined, 12, 0, 25);
+        marginSlider.alignment = ["fill", "center"];
+
+        var marginValTxt = marginRow.add("statictext", undefined, "12%");
+        marginValTxt.preferredSize.width = 40;
+
+        marginSlider.onChanging = function () {
+            var mVal = Math.round(marginSlider.value);
+            marginValTxt.text = mVal + "%";
+            savePref("selectedMargin", mVal.toString());
+        };
+
+        // Shadow Intensity Slider
+        var shRow = tabFrame.add("group");
+        shRow.orientation = "row";
+        shRow.alignChildren = ["fill", "center"];
+        shRow.spacing = 6;
+
+        var shLbl = shRow.add("statictext", undefined, "Drop Shadow:");
+        shLbl.preferredSize.width = 85;
+
+        var shSlider = tabFrame.add("slider", undefined, 65, 0, 100);
+        shSlider.alignment = ["fill", "center"];
+
+        // =====================================================================
+        // TAB SWITCHING LOGIC
+        // =====================================================================
+        function selectTab(tabName) {
+            tabSetup.visible = (tabName === "setup");
+            tabCursor.visible = (tabName === "cursor");
+            tabFrame.visible = (tabName === "frame");
+            win.layout.resize();
         }
 
-        bgDropdown.onChange = function () {
-            var selIdx = bgDropdown.selection ? bgDropdown.selection.index : 0;
-            var k = bgItemKeys[selIdx] || "tahoe-light.jpg";
-            updateBgPreview(k);
-        };
-        updateBgPreview(currentBgKey);
+        btnTabSetup.onClick = function () { selectTab("setup"); };
+        btnTabCursor.onClick = function () { selectTab("cursor"); };
+        btnTabFrame.onClick = function () { selectTab("frame"); };
 
-        var cornerRow = secFrame.add("group");
-        var crnLbl = cornerRow.add("statictext", undefined, "Corner Radius (px):");
-        crnLbl.preferredSize.width = 90;
-        var cornerSlider = cornerRow.add("slider", undefined, 20, 0, 64);
-        cornerSlider.preferredSize.width = 145;
-        var cornerInput = cornerRow.add("edittext", undefined, getPref("cornerRadius", "20"));
-        cornerInput.characters = 4;
-        cornerSlider.value = parseFloat(cornerInput.text) || 20;
-        cornerSlider.onChanging = function () { cornerInput.text = Math.round(cornerSlider.value); };
-        cornerInput.onChange = function () { cornerSlider.value = parseFloat(cornerInput.text) || 20; };
+        // =====================================================================
+        // STICKY BOTTOM ACTION BAR (Generate Motion Comp)
+        // =====================================================================
+        var bottomBar = win.add("group");
+        bottomBar.orientation = "row";
+        bottomBar.alignment = ["fill", "bottom"];
+        bottomBar.margins = [0, 6, 0, 0];
 
-        var shadowRow = secFrame.add("group");
-        var shdLbl = shadowRow.add("statictext", undefined, "Shadow Depth (%):");
-        shdLbl.preferredSize.width = 90;
-        var shadowSlider = shadowRow.add("slider", undefined, 65, 0, 100);
-        shadowSlider.preferredSize.width = 145;
-        var shadowInput = shadowRow.add("edittext", undefined, getPref("shadowIntensity", "65"));
-        shadowInput.characters = 4;
-        shadowSlider.value = parseFloat(shadowInput.text) || 65;
-        shadowSlider.onChanging = function () { shadowInput.text = Math.round(shadowSlider.value); };
-        shadowInput.onChange = function () { shadowSlider.value = parseFloat(shadowInput.text) || 65; };
+        var btnBuild = bottomBar.add("button", undefined, "Generate Motion Comp");
+        btnBuild.alignment = ["fill", "center"];
+        btnBuild.preferredSize.height = 36;
 
-        var marginRow = secFrame.add("group");
-        var mgnLbl = marginRow.add("statictext", undefined, "Canvas Margin (%):");
-        mgnLbl.preferredSize.width = 90;
-        var marginSlider = marginRow.add("slider", undefined, 12, 0, 25);
-        marginSlider.preferredSize.width = 145;
-        var marginInput = marginRow.add("edittext", undefined, getPref("canvasMargin", "12"));
-        marginInput.characters = 4;
-        marginSlider.value = parseFloat(marginInput.text) || 12;
-        marginSlider.onChanging = function () { marginInput.text = Math.round(marginSlider.value); };
-        marginInput.onChange = function () { marginSlider.value = parseFloat(marginInput.text) || 12; };
-
-        // --- SECTION 5: Action Buttons (Fixed at Bottom) ---
-        var actionGrp = win.add("group");
-        actionGrp.orientation = "row";
-        actionGrp.alignment = ["fill", "bottom"];
-        actionGrp.spacing = 6;
-
-        var helpBtn = actionGrp.add("button", undefined, "[?] Help");
-        helpBtn.preferredSize.width = 60;
-
-        var generateBtn = actionGrp.add("button", undefined, "★ Build TraceMotion Rig");
-        generateBtn.alignment = ["fill", "center"];
-        try { generateBtn.graphics.font = ScriptUI.newFont("Verdana", "Bold", 12); } catch (e) {}
-
-        helpBtn.onClick = function () {
-            alert(
-                "TraceMotion Studio - 1:1 Recordly Parity Engine\n\n" +
-                "• Master Camera Rig: Complete camera pan and zoom controller parented cleanly to avoid coordinate drift.\n" +
-                "• Window Framing: Precision rounded-corner shape matte with independent multi-stage drop shadows (Ambient, Body, Contact).\n" +
-                "• Multi-State Cursor Rig: Imports all available cursor states (Arrow, Pointer Hand, Text I-Beam, Grab, Wait) calibrated with exact pixel hotspots.\n" +
-                "• Wallpapers: Complete library of 39 4K Retina wallpapers from Recordly with automatic cover scale.\n" +
-                "• Smart Auto-Zoom: Dynamic dwelling and cluster magnification easing curves.\n\n" +
-                "Compatible with After Effects CC 2020 through CC 2026+.",
-                "TraceMotion Guide"
-            );
-        };
-
-        generateBtn.onClick = function () {
+        btnBuild.onClick = function () {
             if (!selectedVideoFile || !selectedVideoFile.exists) {
-                if (videoPathInput.text) {
-                    var vf = new File(videoPathInput.text);
-                    if (vf.exists) selectedVideoFile = vf;
-                }
-            }
-            if (!selectedJsonFile || !selectedJsonFile.exists) {
-                if (jsonPathInput.text) {
-                    var jf = new File(jsonPathInput.text);
-                    if (jf.exists) selectedJsonFile = jf;
-                }
-            }
-
-            if (!selectedVideoFile || !selectedVideoFile.exists) {
-                alert("Please select a valid screen recording video file.", "TraceMotion Error");
-                return;
-            }
-            if (!selectedJsonFile || !selectedJsonFile.exists) {
-                alert("Please select a companion cursor telemetry JSON file (.cursor.json).", "TraceMotion Error");
+                alert("Please select a valid screen recording video footage file first.", "Input Error");
+                selectTab("setup");
                 return;
             }
 
-            var selStyleKey = styleKeys[cursorDropdown.selection ? cursorDropdown.selection.index : 0] || "tahoe";
-            var zoomDepths = [1.25, 1.50, 1.80, 2.20, 3.50];
-            var zoomModes = ["auto-cluster", "continuous", "static"];
-            var fxModes = ["ripple", "none"];
+            if (!selectedJsonFile || !selectedJsonFile.exists) {
+                // Check if companion exists alongside video
+                var cand = new File(selectedVideoFile.fsName + ".cursor.json");
+                if (!cand.exists) cand = new File(selectedVideoFile.fsName.replace(/\.[^\.]+$/, ".cursor.json"));
+                if (!cand.exists) cand = new File(selectedVideoFile.fsName.replace(/\.[^\.]+$/, ".tracemotion.json"));
+                if (cand.exists) {
+                    selectedJsonFile = cand;
+                } else {
+                    alert("Companion mouse telemetry JSON file not found. Please browse and link the .cursor.json file.", "Input Error");
+                    selectTab("setup");
+                    return;
+                }
+            }
 
-            var selBgIdx = bgDropdown.selection ? bgDropdown.selection.index : 0;
-            var chosenBg = bgItemKeys[selBgIdx] || "tahoe-light.jpg";
+            var feelChoice = "natural";
+            if (radSnappy.value) feelChoice = "snappy";
+            else if (radSilky.value) feelChoice = "silky";
+            else if (radRaw.value) feelChoice = "raw";
+
+            var zModeChoice = "auto-cluster";
+            if (radFollow.value) zModeChoice = "continuous";
+            else if (radStatic.value) zModeChoice = "static";
 
             var opts = {
-                cursorStyle: selStyleKey,
-                preferSvg: radSvg.value,
-                cursorScalePct: parseFloat(sizeInput.text) || 100,
-                dynamicCursorStates: chkDynamicStates.value,
-                swayAmount: chkSway.value ? 0.4 : 0.0,
-                createClickBounce: chkBounce.value,
-                clickEffect: fxModes[fxDropdown.selection ? fxDropdown.selection.index : 0] || "ripple",
-                clickEffectColor: colorInput.text || "#2563EB",
-                clickEffectScale: 100.0,
-                zoomMode: zoomModes[zoomModeDropdown.selection ? zoomModeDropdown.selection.index : 0] || "auto-cluster",
-                zoomDepthScale: zoomDepths[depthDropdown.selection ? depthDropdown.selection.index : 2] || 1.80,
-                cursorSmoothing: parseFloat(smoothInput.text) || 0.67,
-                motionPreset: "smooth",
+                zoomMode: zModeChoice,
+                zoomDepthScale: currentZoomScale,
+                motionFeel: feelChoice,
+                enableAutoStates: chkAutoStates.value,
+                enableVelocitySway: chkVelocitySway.value,
+                enableClickBounce: chkClickBounce.value,
                 enableMotionBlur: chkMotionBlur.value,
-                cornerRadius: parseFloat(cornerInput.text) || 20,
-                shadowIntensity: parseFloat(shadowInput.text) || 65,
-                canvasMargin: parseFloat(marginInput.text) || 12,
-                wallpaper: chosenBg,
-                simplificationTolerance: 0.25,
+                enableTypingSpeedup: chkTypingSpeedup.value,
+                cursorStyle: currentCursorKey,
+                cursorScale: Math.round(cSizeSlider.value),
+                clickEffect: currentRippleColor,
+                wallpaper: currentBgKey,
+                cornerRadius: currentCornerRadius,
+                canvasMargin: Math.round(marginSlider.value),
+                shadowIntensity: Math.round(shSlider.value),
                 silent: false
             };
-
-            // Save persistent preferences
-            savePref("cursorStyleIdx", cursorDropdown.selection ? cursorDropdown.selection.index : 0);
-            savePref("preferSvg", radSvg.value);
-            savePref("cursorScalePct", sizeInput.text);
-            savePref("dynamicCursorStates", chkDynamicStates.value);
-            savePref("enableSway", chkSway.value);
-            savePref("enableBounce", chkBounce.value);
-            savePref("clickEffectIdx", fxDropdown.selection ? fxDropdown.selection.index : 0);
-            savePref("clickColor", colorInput.text);
-            savePref("zoomModeIdx", zoomModeDropdown.selection ? zoomModeDropdown.selection.index : 0);
-            savePref("depthIdx", depthDropdown.selection ? depthDropdown.selection.index : 2);
-            savePref("cursorSmoothing", smoothInput.text);
-            savePref("enableMotionBlur", chkMotionBlur.value);
-            savePref("selectedBgKey", chosenBg);
-            savePref("cornerRadius", cornerInput.text);
-            savePref("shadowIntensity", shadowInput.text);
-            savePref("canvasMargin", marginInput.text);
 
             try {
                 buildTraceMotionRig(selectedVideoFile, selectedJsonFile, opts);
             } catch (err) {}
         };
 
-        // =====================================================================
-        // Scroll Management (Non-Resetting Scroll Bar & Mouse Wheel Handler)
-        // =====================================================================
-        function doScroll(newVal) {
-            var maxV = scrollBar.maxvalue || 0;
-            var target = Math.max(0, Math.min(maxV, newVal));
-            scrollBar.value = target;
-            contentGroup.location = [contentGroup.location[0], -Math.round(target)];
-        }
-
-        scrollBar.onChanging = function () { doScroll(scrollBar.value); };
-        scrollBar.onChange = function () { doScroll(scrollBar.value); };
-        btnScrollUp.onClick = function () { doScroll(scrollBar.value - 75); };
-        btnScrollDown.onClick = function () { doScroll(scrollBar.value + 75); };
-
-        function updateScroll() {
-            try {
-                var prevVal = scrollBar.value || 0;
-                win.layout.resize();
-                var viewH = (scrollViewport.size && (scrollViewport.size[1] || scrollViewport.size.height)) || 0;
-                var contH = (contentGroup.size && (contentGroup.size[1] || contentGroup.size.height)) || 0;
-                if (viewH <= 0) {
-                    var winH = (win.size && (win.size[1] || win.size.height)) || 540;
-                    viewH = Math.max(100, winH - 120);
-                }
-                if (contH > viewH) {
-                    scrollBar.enabled = true;
-                    scrollBar.maxvalue = contH - viewH;
-                    scrollBar.jumpdelta = Math.max(30, Math.floor(viewH * 0.35));
-                    btnScrollUp.enabled = true;
-                    btnScrollDown.enabled = true;
-                    doScroll(prevVal);
-                } else {
-                    scrollBar.enabled = false;
-                    scrollBar.maxvalue = 0;
-                    scrollBar.value = 0;
-                    contentGroup.location = [contentGroup.location[0], 0];
-                    btnScrollUp.enabled = false;
-                    btnScrollDown.enabled = false;
-                }
-            } catch (e) {}
-        }
-
-        win.onResizing = win.onResize = updateScroll;
-
-        var handleWheel = function (e) {
-            if (scrollBar.enabled) {
-                var step = (e.deltaY !== undefined) ? e.deltaY : ((e.detail !== undefined) ? e.detail * 20 : 35);
-                doScroll(scrollBar.value + step);
-            }
+        // Window Resize Handler
+        win.onResizing = win.onResize = function () {
+            win.layout.resize();
         };
-        try { win.addEventListener("wheel", handleWheel); } catch (e) {}
-        try { win.addEventListener("mousewheel", handleWheel); } catch (e) {}
 
         if (win instanceof Window) {
             win.center();
@@ -2363,11 +2535,6 @@
         } else {
             win.layout.layout(true);
         }
-
-        updateScroll();
-        try {
-            updateCursorPreview(styleKeys[cursorDropdown.selection ? cursorDropdown.selection.index : 0]);
-        } catch (e) {}
 
         return win;
     }
@@ -2378,12 +2545,11 @@
     }
     TraceMotion.buildRig = buildTraceMotionRig;
     TraceMotion.buildUI = buildUI;
-    TraceMotion.CURSOR_MANIFEST = CURSOR_MANIFEST;
-    TraceMotion.WALLPAPERS = RECORDLY_WALLPAPERS;
 
-    // Launch UI if not running in headless automated test suite
-    if (typeof $ !== "undefined" && !$.global.__TRACEMOTION_HEADLESS_TEST__) {
-        buildUI(thisObj);
-    }
-
-})(this);
+    // Auto-launch if executed directly in After Effects
+    try {
+        if (typeof app !== "undefined" && app.project) {
+            buildUI(this);
+        }
+    } catch (launchErr) {}
+})();

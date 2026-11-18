@@ -1,0 +1,2263 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TraceMotion Studio — After Effects UI/UX Prototype & Spec</title>
+  <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            canvas: '#111216',
+            harness: '#18191f',
+            panel: '#1c1d22',
+            surface: '#25272e',
+            surfaceHover: '#2d3039',
+            cobalt: {
+              DEFAULT: '#2563EB',
+              hover: '#3B82F6',
+              glow: 'rgba(37, 99, 235, 0.22)',
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    :root {
+      --bg-canvas: #111216;
+      --bg-harness: #18191f;
+      --bg-panel: #1c1d22;
+      --bg-surface: #25272e;
+      --bg-surface-hover: #2e313a;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.14);
+      --accent: #2563EB;
+      --accent-hover: #3B82F6;
+      --transition-fast: 140ms cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      background-color: var(--bg-canvas);
+      color: #f3f4f6;
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Subtle dark studio dot grid for the workspace background */
+    .workspace-grid {
+      background-color: #111216;
+      background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    /* Transparent checkerboard pattern for "None" backdrop */
+    .checkerboard-bg {
+      background-color: #1b1d24;
+      background-image:
+        linear-gradient(45deg, #272a34 25%, transparent 25%),
+        linear-gradient(-45deg, #272a34 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #272a34 75%),
+        linear-gradient(-45deg, transparent 75%, #272a34 75%);
+      background-size: 14px 14px;
+      background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+    }
+
+    /* Resizable AE Panel Host with CSS Container Query Context */
+    #ae-panel-shell {
+      container-type: size;
+      container-name: tm-panel;
+      width: 340px;
+      height: 620px;
+      min-width: 240px;
+      min-height: 300px;
+      max-width: 96vw;
+      max-height: calc(100vh - 132px);
+      resize: both;
+      overflow: hidden;
+      background-color: var(--bg-panel);
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      box-shadow:
+        0 28px 70px -12px rgba(0, 0, 0, 0.75),
+        0 0 0 1px rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+
+    #ae-panel-shell.is-resizing {
+      transition: none !important;
+      border-color: rgba(59, 130, 246, 0.65);
+      box-shadow:
+        0 28px 70px -12px rgba(0, 0, 0, 0.8),
+        0 0 0 2px rgba(37, 99, 235, 0.35);
+    }
+
+    /* Custom subtle scrollbars inside the panel */
+    .tm-scroll::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .tm-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .tm-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 9999px;
+    }
+    .tm-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+
+    /* =========================================================================
+       CSS CONTAINER QUERIES: Adaptive Wide 2-Column vs Narrow Tabbed Layout
+       ========================================================================= */
+    .tm-body-grid {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .tm-tab-bar {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .tm-col-left {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    .tm-col-right {
+      display: none;
+      flex-direction: column;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    /* In Narrow/Standard mode (< 540px), tab panels inside left col toggle by active tab */
+    .tm-section[data-tab-group] {
+      display: none;
+    }
+    .tm-section[data-tab-group].is-active-tab {
+      display: flex;
+    }
+
+    /* Preview stage default dimensions */
+    .tm-stage-wrap {
+      height: 146px;
+      flex-shrink: 0;
+      transition: height var(--transition-fast), padding var(--transition-fast);
+    }
+    .tm-stage-compact-bar {
+      display: none;
+    }
+
+    /* Compact height adaptation (e.g., 310x320 docked bar) */
+    @container tm-panel (max-height: 390px) {
+      .tm-stage-wrap {
+        height: 44px;
+        padding-top: 6px !important;
+        padding-bottom: 6px !important;
+      }
+      .tm-stage-full {
+        display: none !important;
+      }
+      .tm-stage-compact-bar {
+        display: flex !important;
+      }
+    }
+
+    /* Wide Studio Layout (>= 540px): 2-Column Split, Zero Tabs Needed */
+    @container tm-panel (min-width: 540px) {
+      .tm-tab-bar {
+        display: none !important;
+      }
+      .tm-body-grid {
+        display: grid;
+        grid-template-columns: 47% 53%;
+        gap: 0;
+      }
+      .tm-col-left {
+        border-right: 1px solid var(--border-subtle);
+        overflow-y: auto;
+      }
+      .tm-col-right {
+        display: flex !important;
+        overflow-y: auto;
+      }
+      /* Reveal all sections simultaneously across the 2 columns */
+      .tm-section[data-tab-group] {
+        display: flex !important;
+      }
+      .tm-stage-wrap {
+        height: 168px;
+      }
+    }
+
+    /* Very Narrow Panel Tweaks (< 280px) */
+    @container tm-panel (max-width: 280px) {
+      .tm-header-subtitle {
+        display: none;
+      }
+      .tm-compact-hide {
+        display: none;
+      }
+    }
+
+    /* Custom Range Slider Styling */
+    input[type="range"].tm-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 5px;
+      background: #2f323d;
+      border-radius: 999px;
+      outline: none;
+      cursor: pointer;
+      transition: background var(--transition-fast);
+    }
+    input[type="range"].tm-slider:hover {
+      background: #3a3e4b;
+    }
+    input[type="range"].tm-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 2px solid #2563EB;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+      transition: transform 110ms ease, background-color 110ms ease;
+    }
+    input[type="range"].tm-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.14);
+      background: #eff6ff;
+    }
+    input[type="range"].tm-slider:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* Focus rings for full keyboard accessibility */
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid #3B82F6;
+      outline-offset: 2px;
+    }
+
+    /* Smooth micro-transitions */
+    .tm-btn-transition {
+      transition: all var(--transition-fast);
+    }
+
+    /* Ripple Ring Keyframe Animation */
+    @keyframes rippleExpand {
+      0% {
+        transform: translate(-50%, -50%) scale(0.15);
+        opacity: 0.85;
+      }
+      100% {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 0;
+      }
+    }
+    .animate-ripple {
+      animation: rippleExpand 560ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* Custom corner resize grip indicator */
+    .resize-grip {
+      position: absolute;
+      right: 3px;
+      bottom: 3px;
+      width: 14px;
+      height: 14px;
+      cursor: nwse-resize;
+      z-index: 40;
+      opacity: 0.55;
+      transition: opacity 140ms ease;
+    }
+    .resize-grip:hover {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body class="workspace-grid flex flex-col min-h-screen select-none">
+
+  <!-- =========================================================================
+       TOP PREVIEW HARNESS BAR (View Switcher, AE Size Presets, Rig State Toggle)
+       ========================================================================= -->
+  <header class="sticky top-0 z-50 bg-[#18191f]/95 backdrop-blur-md border-b border-white/[0.08] px-3 sm:px-5 py-2.5">
+    <div class="max-w-[1380px] mx-auto flex flex-wrap items-center justify-between gap-2.5">
+
+      <!-- Brand & View Mode Switcher -->
+      <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div class="flex items-center gap-2 pr-1">
+          <span class="inline-flex items-center justify-center w-6 h-6 rounded-md bg-cobalt/20 border border-cobalt/40 text-blue-400">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span class="text-xs font-semibold tracking-wide uppercase text-gray-300">AE ScriptUI Redesign</span>
+        </div>
+
+        <!-- 3-Way View Mode Switcher -->
+        <div role="tablist" aria-label="Prototype View Mode" class="inline-flex items-center p-1 rounded-lg bg-[#111216] border border-white/[0.08]">
+          <button
+            id="view-btn-panel"
+            role="tab"
+            aria-selected="true"
+            onclick="switchMainView('panel')"
+            class="tm-btn-transition px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium bg-cobalt text-white shadow-sm">
+            Live Panel
+          </button>
+          <button
+            id="view-btn-audit"
+            role="tab"
+            aria-selected="false"
+            onclick="switchMainView('audit')"
+            class="tm-btn-transition px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-gray-200">
+            What Was Deleted &amp; Automated
+          </button>
+          <button
+            id="view-btn-spec"
+            role="tab"
+            aria-selected="false"
+            onclick="switchMainView('spec')"
+            class="tm-btn-transition px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-gray-200">
+            Editable Agent Prompt
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Controls: AE Workspace Size Presets + Active Rig Toggle -->
+      <div id="harness-panel-controls" class="flex flex-wrap items-center gap-2">
+        <!-- AE Size Presets -->
+        <div class="hidden md:flex items-center gap-1 p-1 rounded-lg bg-[#111216] border border-white/[0.08]" role="group" aria-label="After Effects Workspace Size Presets">
+          <button onclick="applyPresetSize(250, 640, this)" data-preset="250x640" class="preset-btn tm-btn-transition px-2 py-1 rounded text-[11px] font-medium text-gray-400 hover:text-white hover:bg-white/[0.05]">
+            Narrow (250×640)
+          </button>
+          <button onclick="applyPresetSize(340, 620, this)" data-preset="340x620" class="preset-btn tm-btn-transition px-2 py-1 rounded text-[11px] font-medium bg-[#25272e] text-white border border-white/[0.1]">
+            Standard (340×620)
+          </button>
+          <button onclick="applyPresetSize(310, 320, this)" data-preset="310x320" class="preset-btn tm-btn-transition px-2 py-1 rounded text-[11px] font-medium text-gray-400 hover:text-white hover:bg-white/[0.05]">
+            Compact (310×320)
+          </button>
+          <button onclick="applyPresetSize(740, 460, this)" data-preset="740x460" class="preset-btn tm-btn-transition px-2 py-1 rounded text-[11px] font-medium text-gray-400 hover:text-white hover:bg-white/[0.05]">
+            Wide Bar (740×460)
+          </button>
+        </div>
+
+        <!-- Mobile/Compact Preset Dropdown for small viewports -->
+        <select
+          aria-label="AE Workspace Size Preset"
+          onchange="const [w,h] = this.value.split('x').map(Number); applyPresetSize(w, h);"
+          class="md:hidden bg-[#111216] border border-white/[0.1] rounded-lg px-2 py-1.5 text-xs text-gray-200">
+          <option value="340x620" selected>Standard (340×620)</option>
+          <option value="250x640">Narrow (250×640)</option>
+          <option value="310x320">Compact (310×320)</option>
+          <option value="740x460">Wide Bar (740×460)</option>
+        </select>
+
+        <!-- Live Dimension Readout Pill -->
+        <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#111216] border border-white/[0.08] font-mono text-[11px] text-gray-300">
+          <span id="live-dim-text">340 × 620</span>
+          <span class="text-gray-600">•</span>
+          <span id="live-layout-badge" class="text-blue-400">Tabbed</span>
+        </div>
+
+        <!-- Active Rig Simulation Toggle -->
+        <button
+          id="rig-state-toggle"
+          onclick="toggleActiveRigState()"
+          aria-pressed="false"
+          class="tm-btn-transition inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#25272e] hover:bg-[#2e313a] border border-white/[0.1] text-gray-200">
+          <span id="rig-toggle-dot" class="w-2 h-2 rounded-full bg-gray-500"></span>
+          <span id="rig-toggle-label">No Active Rig</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- =========================================================================
+       VIEW 1: LIVE PANEL WORKSPACE SANDBOX
+       ========================================================================= -->
+  <main id="view-panel" class="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 overflow-auto">
+    <!-- Subtle helper hint above panel -->
+    <div class="mb-3 flex flex-wrap items-center justify-center gap-2 text-[11px] text-gray-400">
+      <span>Drag the bottom-right corner of the panel to test fluid responsiveness</span>
+      <span class="text-gray-600">•</span>
+      <span>Auto-switches to 2-column layout at <code class="font-mono text-gray-300 bg-white/[0.05] px-1.5 py-0.5 rounded">≥ 540px</code></span>
+    </div>
+
+    <!-- =======================================================================
+         TRACEMOTION STUDIO PANEL (Container-Query Responsive)
+         ======================================================================= -->
+    <section
+      id="ae-panel-shell"
+      aria-label="TraceMotion Studio After Effects Panel">
+
+      <!-- 1. STICKY PANEL HEADER -->
+      <div class="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-[#1c1d22] border-b border-white/[0.08] shrink-0">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <!-- Custom TraceMotion App Emblem -->
+          <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-inner border border-blue-400/30 shrink-0">
+            <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="4" width="18" height="14" rx="3" stroke="currentColor" stroke-width="1.8" stroke-opacity="0.65"/>
+              <path d="M10.5 9.5L17.5 12.2L14.2 13.7L12.7 17L10.5 9.5Z" fill="currentColor"/>
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <h1 class="text-[13px] font-semibold text-white tracking-tight truncate leading-tight">TraceMotion Studio</h1>
+            <p class="tm-header-subtitle text-[10px] text-gray-400 truncate leading-tight mt-0.5">Recordly Smart Framing &amp; Cursor Rig</p>
+          </div>
+        </div>
+
+        <!-- Status Pill -->
+        <div id="panel-status-pill" class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium bg-[#25272e] border border-white/[0.08] text-gray-300 shrink-0">
+          <span id="panel-status-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          <span id="panel-status-text">AE 2020+</span>
+        </div>
+      </div>
+
+      <!-- 2. RESPONSIVE BODY (Switches between Tabbed <540px and 2-Col >=540px) -->
+      <div class="tm-body-grid">
+
+        <!-- LEFT COLUMN (In <540px mode, holds Preview + Tab Bar + Active Tab Content; in >=540px mode, holds Preview + Setup) -->
+        <div class="tm-col-left tm-scroll">
+
+          <!-- INTERACTIVE MINIATURE COMPOSITION PREVIEW STAGE -->
+          <div class="tm-stage-wrap px-3 pt-2.5 pb-2 border-b border-white/[0.07] bg-[#17181d]">
+            <!-- Full Interactive Stage (hidden when height <= 390px) -->
+            <div
+              id="preview-stage"
+              role="button"
+              tabindex="0"
+              aria-label="Interactive Composition Preview. Click anywhere inside to test cursor movement, click bounce, and ripple ring."
+              onclick="handleStageClick(event)"
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();simulateCenterClick();}"
+              class="tm-stage-full relative w-full h-full rounded-lg overflow-hidden border border-white/[0.1] cursor-crosshair flex items-center justify-center transition-all duration-150"
+              style="background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);">
+
+              <!-- Subtle top-left HUD hint -->
+              <div class="absolute top-1.5 left-2 z-20 flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-black/45 backdrop-blur-sm text-[9px] font-medium text-gray-200 pointer-events-none">
+                <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                <span>Click inside to test cursor &amp; ripple</span>
+              </div>
+
+              <!-- Zoom Indicator Badge (top-right) -->
+              <div id="stage-zoom-badge" class="absolute top-1.5 right-2 z-20 px-1.5 py-0.5 rounded bg-black/45 backdrop-blur-sm font-mono text-[9px] text-blue-300 pointer-events-none">
+                1.80x Auto
+              </div>
+
+              <!-- Camera Pan/Zoom Container -->
+              <div
+                id="stage-camera-rig"
+                class="w-full h-full flex items-center justify-center transition-transform duration-500 ease-out"
+                style="transform: scale(1) translate(0px, 0px);">
+
+                <!-- Framed Screen Recording Window -->
+                <div
+                  id="stage-window-frame"
+                  class="relative bg-[#14161b] border border-white/15 overflow-hidden flex flex-col transition-all duration-150"
+                  style="width: 76%; height: 76%; border-radius: 10px; box-shadow: 0 12px 28px rgba(0,0,0,0.55);">
+
+                  <!-- Mock macOS Window Titlebar -->
+                  <div class="h-4 px-2 bg-[#1f222a] border-b border-white/[0.07] flex items-center justify-between shrink-0">
+                    <div class="flex items-center gap-1">
+                      <span class="w-1.5 h-1.5 rounded-full bg-[#ff5f57]"></span>
+                      <span class="w-1.5 h-1.5 rounded-full bg-[#febc2e]"></span>
+                      <span class="w-1.5 h-1.5 rounded-full bg-[#28c840]"></span>
+                    </div>
+                    <div class="w-16 h-1.5 rounded-full bg-white/10"></div>
+                    <div class="w-3"></div>
+                  </div>
+
+                  <!-- Mock App UI Canvas inside Screen Recording -->
+                  <div class="flex-1 p-2 grid grid-cols-12 gap-1.5 bg-[#13151a]">
+                    <div class="col-span-3 rounded bg-white/[0.04] p-1.5 flex flex-col gap-1">
+                      <div class="w-full h-1.5 rounded bg-blue-500/40"></div>
+                      <div class="w-4/5 h-1 rounded bg-white/10"></div>
+                      <div class="w-3/5 h-1 rounded bg-white/10"></div>
+                    </div>
+                    <div class="col-span-9 rounded bg-white/[0.03] border border-white/[0.05] p-1.5 flex flex-col justify-between">
+                      <div class="flex items-center justify-between">
+                        <div class="w-14 h-1.5 rounded bg-white/15"></div>
+                        <div class="px-1.5 py-0.5 rounded bg-cobalt/40 text-[7px] text-blue-200 font-mono">REC</div>
+                      </div>
+                      <div class="grid grid-cols-2 gap-1.5 my-auto">
+                        <div class="h-6 rounded bg-white/[0.04] border border-white/[0.04]"></div>
+                        <div class="h-6 rounded bg-blue-500/10 border border-blue-400/20"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Ripple VFX Layer -->
+              <div id="stage-ripple-layer" class="absolute inset-0 pointer-events-none z-20 overflow-hidden"></div>
+
+              <!-- Live Spring-Interpolated Cursor Sprite -->
+              <div
+                id="stage-cursor"
+                class="absolute z-30 pointer-events-none"
+                style="left: 56%; top: 54%; transform: translate(0px, 0px) scale(1) rotate(0deg); transition: left 360ms cubic-bezier(0.22, 1, 0.36, 1), top 360ms cubic-bezier(0.22, 1, 0.36, 1), transform 180ms cubic-bezier(0.22, 1, 0.36, 1);">
+                <!-- Dynamic SVG injected by JS -->
+              </div>
+            </div>
+
+            <!-- Compact Strip Preview (Automatically shown when panel height <= 390px) -->
+            <div
+              onclick="simulateCenterClick()"
+              class="tm-stage-compact-bar w-full h-full rounded-lg bg-[#25272e] border border-white/[0.08] px-2.5 items-center justify-between cursor-pointer hover:bg-[#2d3039]">
+              <div class="flex items-center gap-2">
+                <span id="compact-bg-swatch" class="w-5 h-5 rounded border border-white/20 shrink-0" style="background: linear-gradient(135deg, #3B82F6, #8B5CF6);"></span>
+                <span class="text-[11px] font-medium text-gray-200 truncate" id="compact-summary-txt">Tahoe • 1.80x • 20px</span>
+              </div>
+              <span class="text-[10px] font-mono text-blue-400 shrink-0">Tap to Test ↗</span>
+            </div>
+          </div>
+
+          <!-- 3-TAB BAR (Visible only when panel width < 540px) -->
+          <div role="tablist" aria-label="TraceMotion Control Sections" class="tm-tab-bar bg-[#18191f] border-b border-white/[0.08] px-2 py-1.5 gap-1 shrink-0">
+            <button
+              id="tab-btn-setup"
+              role="tab"
+              aria-selected="true"
+              aria-controls="sec-setup"
+              onclick="selectPanelTab('setup')"
+              class="tm-tab-btn tm-btn-transition py-1.5 px-2 rounded-md text-xs font-semibold bg-cobalt text-white shadow-sm">
+              Setup
+            </button>
+            <button
+              id="tab-btn-cursor"
+              role="tab"
+              aria-selected="false"
+              aria-controls="sec-cursor"
+              onclick="selectPanelTab('cursor')"
+              class="tm-tab-btn tm-btn-transition py-1.5 px-2 rounded-md text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]">
+              Cursor
+            </button>
+            <button
+              id="tab-btn-frame"
+              role="tab"
+              aria-selected="false"
+              aria-controls="sec-frame"
+              onclick="selectPanelTab('frame')"
+              class="tm-tab-btn tm-btn-transition py-1.5 px-2 rounded-md text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]">
+              Frame
+            </button>
+          </div>
+
+          <!-- =================================================================
+               TAB 1 / LEFT COLUMN: SETUP (Media Ingest + Camera & Motion)
+               ================================================================= -->
+          <div id="sec-setup" data-tab-group="setup" class="tm-section is-active-tab flex-col gap-3.5 p-3.5">
+
+            <!-- Unified Single-Action Recording & Telemetry Dropzone -->
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center justify-between">
+                <label class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Capture Source</label>
+                <button
+                  type="button"
+                  onclick="cycleSampleCapture()"
+                  class="text-[10px] text-blue-400 hover:text-blue-300 font-medium underline-offset-2 hover:underline">
+                  Switch Sample
+                </button>
+              </div>
+
+              <div
+                id="capture-dropzone"
+                role="button"
+                tabindex="0"
+                onclick="triggerFilePickerSim()"
+                onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();triggerFilePickerSim();}"
+                class="tm-btn-transition group relative rounded-xl bg-[#25272e] hover:bg-[#2b2e37] border border-dashed border-white/[0.16] hover:border-blue-400/60 p-2.5 cursor-pointer">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-8 h-8 rounded-lg bg-cobalt/15 border border-cobalt/30 flex items-center justify-center text-blue-400 shrink-0 group-hover:scale-105 transition-transform">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div id="capture-video-name" class="text-xs font-semibold text-white truncate">Product_Demo_4K.mp4</div>
+                    <div id="capture-meta-line" class="text-[10px] text-gray-400 truncate mt-0.5">3840×2160 • 60 fps • 00:42</div>
+                  </div>
+                  <span class="px-2 py-1 rounded-md bg-white/[0.06] text-[10px] font-medium text-gray-300 group-hover:bg-cobalt group-hover:text-white transition-colors shrink-0">
+                    Browse
+                  </span>
+                </div>
+
+                <!-- Auto-Paired Telemetry Sync Pill -->
+                <div id="telemetry-sync-badge" class="mt-2 pt-2 border-t border-white/[0.07] flex items-center justify-between gap-1.5">
+                  <div class="inline-flex items-center gap-1.5 min-w-0">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
+                    <span id="telemetry-status-text" class="text-[10px] font-medium text-emerald-300 truncate">Auto-paired .cursor.json (1,420 pts)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onclick="event.stopPropagation(); relinkTelemetrySim();"
+                    class="text-[10px] text-gray-400 hover:text-white shrink-0">
+                    Relink
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3-Way Zoom Mode Selector -->
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Camera Zoom</span>
+                <span id="zoom-mode-hint" class="text-[10px] text-gray-400">Clicks &amp; pauses</span>
+              </div>
+              <div role="radiogroup" aria-label="Camera Zoom Mode" class="grid grid-cols-3 gap-1 p-1 rounded-lg bg-[#141519] border border-white/[0.08]">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="true"
+                  data-zoom-mode="auto-cluster"
+                  onclick="setZoomMode('auto-cluster')"
+                  class="zoom-mode-btn tm-btn-transition py-1.5 px-1.5 rounded-md text-[11px] font-semibold bg-cobalt text-white shadow-sm">
+                  Auto Zoom
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  data-zoom-mode="continuous"
+                  onclick="setZoomMode('continuous')"
+                  class="zoom-mode-btn tm-btn-transition py-1.5 px-1.5 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-200">
+                  Follow
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  data-zoom-mode="static"
+                  onclick="setZoomMode('static')"
+                  class="zoom-mode-btn tm-btn-transition py-1.5 px-1.5 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-200">
+                  Static
+                </button>
+              </div>
+            </div>
+
+            <!-- Zoom Depth Slider -->
+            <div id="zoom-depth-group" class="flex flex-col gap-1.5 transition-opacity duration-150">
+              <div class="flex items-center justify-between">
+                <label for="slider-zoom-depth" class="text-xs font-medium text-gray-300">Zoom Depth</label>
+                <span id="val-zoom-depth" class="font-mono text-[11px] font-medium text-blue-400 bg-cobalt/15 px-1.5 py-0.5 rounded">1.80x</span>
+              </div>
+              <input
+                id="slider-zoom-depth"
+                type="range"
+                min="1.20"
+                max="3.20"
+                step="0.05"
+                value="1.80"
+                oninput="updateZoomDepth(this.value)"
+                class="tm-slider" />
+            </div>
+
+            <!-- 4-Way Motion Feel Selector (Replaces Raw Spring Physics Numbers) -->
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Motion Feel</span>
+                <span id="motion-feel-desc" class="text-[10px] text-gray-400">Balanced spring</span>
+              </div>
+              <div role="radiogroup" aria-label="Cursor Motion Feel" class="grid grid-cols-4 gap-1 p-1 rounded-lg bg-[#141519] border border-white/[0.08]">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="true"
+                  data-feel="natural"
+                  onclick="setMotionFeel('natural')"
+                  class="feel-btn tm-btn-transition py-1.5 px-1 rounded-md text-[11px] font-semibold bg-cobalt text-white shadow-sm">
+                  Natural
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  data-feel="snappy"
+                  onclick="setMotionFeel('snappy')"
+                  class="feel-btn tm-btn-transition py-1.5 px-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-200">
+                  Snappy
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  data-feel="silky"
+                  onclick="setMotionFeel('silky')"
+                  class="feel-btn tm-btn-transition py-1.5 px-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-200">
+                  Silky
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  data-feel="raw"
+                  onclick="setMotionFeel('raw')"
+                  class="feel-btn tm-btn-transition py-1.5 px-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-200">
+                  Raw
+                </button>
+              </div>
+            </div>
+
+            <!-- Collapsed-by-Default "Fine-Tune Physics" Accordion -->
+            <div class="rounded-xl bg-[#25272e]/75 border border-white/[0.08] overflow-hidden">
+              <button
+                id="accordion-physics-btn"
+                type="button"
+                aria-expanded="false"
+                aria-controls="accordion-physics-body"
+                onclick="togglePhysicsAccordion()"
+                class="tm-btn-transition w-full px-3 py-2 flex items-center justify-between text-left hover:bg-white/[0.03]">
+                <div class="flex items-center gap-2">
+                  <svg class="w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="text-xs font-medium text-gray-200">Fine-Tune Physics</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <span id="physics-active-count" class="text-[10px] font-mono text-gray-400">4/4 on</span>
+                  <svg id="accordion-chevron" class="w-3.5 h-3.5 text-gray-400 transition-transform duration-150" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+                  </svg>
+                </div>
+              </button>
+
+              <div id="accordion-physics-body" class="hidden px-3 pb-2.5 pt-1 border-t border-white/[0.06] flex-col gap-2">
+                <!-- Toggle 1 -->
+                <label class="flex items-center justify-between gap-2 cursor-pointer py-0.5">
+                  <div>
+                    <div class="text-xs font-medium text-gray-200">Auto Cursor States</div>
+                    <div class="text-[10px] text-gray-400">Pointer, I-beam &amp; hand switching</div>
+                  </div>
+                  <input id="chk-auto-states" type="checkbox" checked onchange="updatePhysicsCount()" class="w-4 h-4 rounded accent-[#2563EB] cursor-pointer" />
+                </label>
+
+                <!-- Toggle 2 -->
+                <label class="flex items-center justify-between gap-2 cursor-pointer py-0.5">
+                  <div>
+                    <div class="text-xs font-medium text-gray-200">Velocity Tilt Sway</div>
+                    <div class="text-[10px] text-gray-400">Subtle directional lean on fast moves</div>
+                  </div>
+                  <input id="chk-sway" type="checkbox" checked onchange="updatePhysicsCount()" class="w-4 h-4 rounded accent-[#2563EB] cursor-pointer" />
+                </label>
+
+                <!-- Toggle 3 -->
+                <label class="flex items-center justify-between gap-2 cursor-pointer py-0.5">
+                  <div>
+                    <div class="text-xs font-medium text-gray-200">Click Bounce</div>
+                    <div class="text-[10px] text-gray-400">Tactile 84% press compression</div>
+                  </div>
+                  <input id="chk-bounce" type="checkbox" checked onchange="updatePhysicsCount()" class="w-4 h-4 rounded accent-[#2563EB] cursor-pointer" />
+                </label>
+
+                <!-- Toggle 4 -->
+                <label class="flex items-center justify-between gap-2 cursor-pointer py-0.5">
+                  <div>
+                    <div class="text-xs font-medium text-gray-200">Motion Blur</div>
+                    <div class="text-[10px] text-gray-400">Native AE composition shutter blur</div>
+                  </div>
+                  <input id="chk-blur" type="checkbox" checked onchange="updatePhysicsCount()" class="w-4 h-4 rounded accent-[#2563EB] cursor-pointer" />
+                </label>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN (In <540px mode, shares scroll container via JS repositioning; in >=540px mode, sits cleanly as Right Studio Column) -->
+        <div id="tm-right-column" class="tm-col-right tm-scroll">
+
+          <!-- =================================================================
+               TAB 2 / TOP-RIGHT CARD: CURSOR STYLING & RIPPLE
+               ================================================================= -->
+          <div id="sec-cursor" data-tab-group="cursor" class="tm-section flex-col gap-3.5 p-3.5 border-b border-white/[0.07]">
+
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Cursor Style</span>
+              <span class="text-[10px] font-mono text-gray-400 bg-white/[0.04] px-1.5 py-0.5 rounded" title="Automatically selects SVG vector on AE 2024+ and Retina 512px PNG on AE 2020–2023">
+                Auto SVG/PNG
+              </span>
+            </div>
+
+            <!-- 2x2 Visual Cursor Style Cards -->
+            <div role="radiogroup" aria-label="Cursor Asset Style" class="grid grid-cols-2 gap-2">
+              <!-- Card 1: macOS Tahoe -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="true"
+                data-cursor="tahoe"
+                onclick="selectCursorStyle('tahoe')"
+                class="cursor-card tm-btn-transition flex items-center gap-2.5 p-2 rounded-xl bg-cobalt/15 border border-blue-500 text-left">
+                <div class="w-8 h-8 rounded-lg bg-[#16171c] border border-white/[0.08] flex items-center justify-center shrink-0">
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                    <path d="M6 3L6 19L10.2 15.2L13.2 21L15.6 19.8L12.6 14L18 14L6 3Z" fill="#FFFFFF" stroke="#111216" stroke-width="1.5" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-xs font-semibold text-white truncate">macOS Tahoe</div>
+                  <div class="text-[10px] text-blue-300 truncate">Default • 10 states</div>
+                </div>
+              </button>
+
+              <!-- Card 2: macOS Classic -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="false"
+                data-cursor="macos"
+                onclick="selectCursorStyle('macos')"
+                class="cursor-card tm-btn-transition flex items-center gap-2.5 p-2 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08] text-left">
+                <div class="w-8 h-8 rounded-lg bg-[#16171c] border border-white/[0.08] flex items-center justify-center shrink-0">
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                    <path d="M6.5 3.5L6.5 18.5L10.3 15L13 20.5L15.1 19.5L12.4 14L17.5 14L6.5 3.5Z" fill="#111216" stroke="#FFFFFF" stroke-width="1.6" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-xs font-semibold text-gray-200 truncate">macOS Classic</div>
+                  <div class="text-[10px] text-gray-400 truncate">Retina • 10 states</div>
+                </div>
+              </button>
+
+              <!-- Card 3: Windows 11 -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="false"
+                data-cursor="windows11"
+                onclick="selectCursorStyle('windows11')"
+                class="cursor-card tm-btn-transition flex items-center gap-2.5 p-2 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08] text-left">
+                <div class="w-8 h-8 rounded-lg bg-[#16171c] border border-white/[0.08] flex items-center justify-center shrink-0">
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                    <path d="M5.5 3L5.5 19.5L9.8 16L12.6 21.2L15 20L12.2 14.8L18 14.8L5.5 3Z" fill="#F8FAFC" stroke="#1E293B" stroke-width="1.4" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-xs font-semibold text-gray-200 truncate">Windows 11</div>
+                  <div class="text-[10px] text-gray-400 truncate">Fluent • 10 states</div>
+                </div>
+              </button>
+
+              <!-- Card 4: Figma Minimal -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="false"
+                data-cursor="custom"
+                onclick="selectCursorStyle('custom')"
+                class="cursor-card tm-btn-transition flex items-center gap-2.5 p-2 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08] text-left">
+                <div class="w-8 h-8 rounded-lg bg-[#16171c] border border-white/[0.08] flex items-center justify-center shrink-0">
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                    <path d="M5 4L10.5 20L13.2 13.2L20 10.5L5 4Z" fill="#0F172A" stroke="#FFFFFF" stroke-width="1.6" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <div class="min-w-0">
+                  <div class="text-xs font-semibold text-gray-200 truncate">Figma Minimal</div>
+                  <div class="text-[10px] text-gray-400 truncate">Sharp vector</div>
+                </div>
+              </button>
+            </div>
+
+            <!-- Cursor Size Slider -->
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center justify-between">
+                <label for="slider-cursor-size" class="text-xs font-medium text-gray-300">Cursor Size</label>
+                <span id="val-cursor-size" class="font-mono text-[11px] font-medium text-gray-200 bg-white/[0.06] px-1.5 py-0.5 rounded">100%</span>
+              </div>
+              <input
+                id="slider-cursor-size"
+                type="range"
+                min="50"
+                max="200"
+                step="5"
+                value="100"
+                oninput="updateCursorSize(this.value)"
+                class="tm-slider" />
+            </div>
+
+            <!-- Inline Click Ripple Color Swatches -->
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-gray-300">Click Ripple</span>
+                <span id="val-ripple-label" class="font-mono text-[10px] text-blue-400">#2563EB</span>
+              </div>
+              <div role="radiogroup" aria-label="Click Ripple Color" class="flex items-center gap-2">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="true"
+                  aria-label="Cobalt Blue Ripple"
+                  data-ripple="#2563EB"
+                  onclick="selectRippleColor('#2563EB')"
+                  class="ripple-swatch tm-btn-transition w-7 h-7 rounded-full bg-[#2563EB] ring-2 ring-white ring-offset-2 ring-offset-[#1c1d22] shrink-0">
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  aria-label="Pure White Ripple"
+                  data-ripple="#FFFFFF"
+                  onclick="selectRippleColor('#FFFFFF')"
+                  class="ripple-swatch tm-btn-transition w-7 h-7 rounded-full bg-[#FFFFFF] border border-white/30 opacity-80 hover:opacity-100 shrink-0">
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  aria-label="Emerald Green Ripple"
+                  data-ripple="#10B981"
+                  onclick="selectRippleColor('#10B981')"
+                  class="ripple-swatch tm-btn-transition w-7 h-7 rounded-full bg-[#10B981] opacity-80 hover:opacity-100 shrink-0">
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  aria-label="Amber Gold Ripple"
+                  data-ripple="#F59E0B"
+                  onclick="selectRippleColor('#F59E0B')"
+                  class="ripple-swatch tm-btn-transition w-7 h-7 rounded-full bg-[#F59E0B] opacity-80 hover:opacity-100 shrink-0">
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked="false"
+                  data-ripple="none"
+                  onclick="selectRippleColor('none')"
+                  class="ripple-swatch tm-btn-transition ml-auto px-2.5 h-7 rounded-lg bg-[#25272e] hover:bg-[#2e313a] border border-white/[0.1] text-[11px] font-medium text-gray-300">
+                  Off
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- =================================================================
+               TAB 3 / BOTTOM-RIGHT CARD: WINDOW FRAMING & BACKDROP
+               ================================================================= -->
+          <div id="sec-frame" data-tab-group="frame" class="tm-section flex-col gap-3.5 p-3.5">
+
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Backdrop</span>
+              <!-- Quick access to full 39 Recordly wallpapers without cluttering the grid -->
+              <select
+                id="wallpaper-library-select"
+                aria-label="Full 39 Recordly Wallpaper Library"
+                onchange="selectFullLibraryWallpaper(this.value)"
+                class="bg-[#25272e] border border-white/[0.08] rounded px-1.5 py-0.5 text-[10px] text-gray-300 hover:border-white/20 max-w-[135px] truncate">
+                <option value="tahoe">39 Wallpapers...</option>
+                <option value="tahoe">Tahoe Light</option>
+                <option value="midnight">Tahoe Dark / Midnight</option>
+                <option value="azure">Sequoia Azure</option>
+                <option value="cherry">Cherry Pop</option>
+                <option value="studio">Dark Studio</option>
+                <option value="hyper">Hyper Abstract 04</option>
+                <option value="sonoma">Sonoma Horizon</option>
+              </select>
+            </div>
+
+            <!-- 3x2 Visual Backdrop Tiles -->
+            <div role="radiogroup" aria-label="Backdrop Style" class="grid grid-cols-3 gap-2">
+              <!-- Tile 1: Tahoe -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="true"
+                data-bg="tahoe"
+                onclick="selectBackdrop('tahoe')"
+                class="bg-tile tm-btn-transition group flex flex-col items-center gap-1 p-1 rounded-xl bg-cobalt/15 border border-blue-500">
+                <span class="w-full h-8 rounded-lg block shadow-inner" style="background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);"></span>
+                <span class="text-[10px] font-semibold text-white">Tahoe</span>
+              </button>
+
+              <!-- Tile 2: Midnight -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="false"
+                data-bg="midnight"
+                onclick="selectBackdrop('midnight')"
+                class="bg-tile tm-btn-transition group flex flex-col items-center gap-1 p-1 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08]">
+                <span class="w-full h-8 rounded-lg block shadow-inner" style="background: radial-gradient(circle at 30% 25%, #1e293b 0%, #090d16 100%);"></span>
+                <span class="text-[10px] font-medium text-gray-300">Midnight</span>
+              </button>
+
+              <!-- Tile 3: Azure -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="false"
+                data-bg="azure"
+                onclick="selectBackdrop('azure')"
+                class="bg-tile tm-btn-transition group flex flex-col items-center gap-1 p-1 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08]">
+                <span class="w-full h-8 rounded-lg block shadow-inner" style="background: linear-gradient(135deg, #2563EB 0%, #0F172A 100%);"></span>
+                <span class="text-[10px] font-medium text-gray-300">Azure</span>
+              </button>
+
+              <!-- Tile 4: Cherry -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="false"
+                data-bg="cherry"
+                onclick="selectBackdrop('cherry')"
+                class="bg-tile tm-btn-transition group flex flex-col items-center gap-1 p-1 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08]">
+                <span class="w-full h-8 rounded-lg block shadow-inner" style="background: linear-gradient(135deg, #F43F5E 0%, #7C3AED 100%);"></span>
+                <span class="text-[10px] font-medium text-gray-300">Cherry</span>
+              </button>
+
+              <!-- Tile 5: Studio -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="false"
+                data-bg="studio"
+                onclick="selectBackdrop('studio')"
+                class="bg-tile tm-btn-transition group flex flex-col items-center gap-1 p-1 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08]">
+                <span class="w-full h-8 rounded-lg block shadow-inner" style="background: radial-gradient(circle at 50% 35%, #27272a 0%, #09090b 100%);"></span>
+                <span class="text-[10px] font-medium text-gray-300">Studio</span>
+              </button>
+
+              <!-- Tile 6: None (Transparent) -->
+              <button
+                type="button"
+                role="radio"
+                aria-checked="false"
+                data-bg="none"
+                onclick="selectBackdrop('none')"
+                class="bg-tile tm-btn-transition group flex flex-col items-center gap-1 p-1 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08]">
+                <span class="w-full h-8 rounded-lg block checkerboard-bg border border-white/10"></span>
+                <span class="text-[10px] font-medium text-gray-300">None</span>
+              </button>
+            </div>
+
+            <!-- Window Framing Sliders -->
+            <div class="flex flex-col gap-2.5 pt-0.5">
+              <!-- Corner Radius -->
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center justify-between">
+                  <label for="slider-radius" class="text-xs font-medium text-gray-300">Corner Radius</label>
+                  <span id="val-radius" class="font-mono text-[11px] text-gray-200 bg-white/[0.06] px-1.5 py-0.5 rounded">20px</span>
+                </div>
+                <input
+                  id="slider-radius"
+                  type="range"
+                  min="0"
+                  max="48"
+                  step="2"
+                  value="20"
+                  oninput="updateCornerRadius(this.value)"
+                  class="tm-slider" />
+              </div>
+
+              <!-- Window Margin -->
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center justify-between">
+                  <label for="slider-margin" class="text-xs font-medium text-gray-300">Window Margin</label>
+                  <span id="val-margin" class="font-mono text-[11px] text-gray-200 bg-white/[0.06] px-1.5 py-0.5 rounded">12%</span>
+                </div>
+                <input
+                  id="slider-margin"
+                  type="range"
+                  min="0"
+                  max="25"
+                  step="1"
+                  value="12"
+                  oninput="updateWindowMargin(this.value)"
+                  class="tm-slider" />
+              </div>
+
+              <!-- Drop Shadow -->
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center justify-between">
+                  <label for="slider-shadow" class="text-xs font-medium text-gray-300">Drop Shadow</label>
+                  <span id="val-shadow" class="font-mono text-[11px] text-gray-200 bg-white/[0.06] px-1.5 py-0.5 rounded">65%</span>
+                </div>
+                <input
+                  id="slider-shadow"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value="65"
+                  oninput="updateShadowDepth(this.value)"
+                  class="tm-slider" />
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Inline Non-Blocking Toast Banner (Replaces modal alert() popups!) -->
+      <div id="panel-toast" class="hidden px-3.5 py-2 bg-emerald-500/15 border-t border-emerald-500/30 flex items-center justify-between gap-2 text-[11px] text-emerald-200 shrink-0">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <svg class="w-3.5 h-3.5 text-emerald-400 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd"/>
+          </svg>
+          <span id="panel-toast-msg" class="truncate">Rig built: Product_Demo_4K_TraceMotion</span>
+        </div>
+        <button onclick="hidePanelToast()" class="text-emerald-300 hover:text-white text-xs font-bold px-1">×</button>
+      </div>
+
+      <!-- 3. STICKY PANEL FOOTER -->
+      <div class="px-3.5 py-2.5 bg-[#18191f] border-t border-white/[0.08] flex items-center gap-2 shrink-0">
+        <button
+          id="primary-cta-btn"
+          type="button"
+          onclick="executePrimaryBuild()"
+          class="tm-btn-transition flex-1 py-2 px-3 rounded-lg bg-cobalt hover:bg-cobalt-hover active:scale-[0.99] text-white text-xs font-semibold shadow-md shadow-blue-950/50 flex items-center justify-center gap-1.5">
+          <svg id="primary-cta-icon" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z"/>
+          </svg>
+          <span id="primary-cta-label">Build TraceMotion Rig</span>
+        </button>
+
+        <button
+          type="button"
+          onclick="resetAllDefaults()"
+          title="Reset all parameters to Recordly defaults"
+          aria-label="Reset all settings to defaults"
+          class="tm-btn-transition p-2 rounded-lg bg-[#25272e] hover:bg-[#2e313a] border border-white/[0.1] text-gray-300 hover:text-white shrink-0">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M3 3v5h5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Custom Interactive Resize Corner Handle -->
+      <div id="custom-resize-grip" class="resize-grip" title="Drag to resize panel">
+        <svg viewBox="0 0 14 14" class="w-full h-full text-gray-400">
+          <path d="M12 2L2 12M12 6L6 12M12 10L10 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </section>
+  </main>
+
+  <!-- =========================================================================
+       VIEW 2: WHAT WAS DELETED & AUTOMATED (UX & Architecture Audit)
+       ========================================================================= -->
+  <section id="view-audit" class="hidden flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 select-text">
+    <div class="mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+      <div>
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-cobalt/15 text-blue-300 border border-cobalt/30 mb-2">
+          UX Simplification Audit • TraceMotionImporter.jsx
+        </span>
+        <h2 class="text-2xl font-bold text-white tracking-tight">From "Airplane Cockpit" to Effortless Studio</h2>
+        <p class="text-sm text-gray-400 mt-1 max-w-2xl">
+          Every redundant widget, manual scrollbar, and physics formula from the original ScriptUI panel was audited. Below is what was deleted, automated behind the scenes, or unified.
+        </p>
+      </div>
+
+      <!-- Summary Stat Pills -->
+      <div class="flex items-center gap-3 shrink-0">
+        <div class="px-3.5 py-2 rounded-xl bg-[#1c1d22] border border-white/[0.08]">
+          <div class="text-[11px] text-gray-400">Visible Controls</div>
+          <div class="text-lg font-bold font-mono text-white">27 <span class="text-gray-500">→</span> <span class="text-emerald-400">11</span></div>
+        </div>
+        <div class="px-3.5 py-2 rounded-xl bg-[#1c1d22] border border-white/[0.08]">
+          <div class="text-[11px] text-gray-400">Zero-Click Automation</div>
+          <div class="text-lg font-bold font-mono text-blue-400">6 Tasks</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Responsive Audit Table -->
+    <div class="rounded-2xl bg-[#1c1d22] border border-white/[0.09] overflow-hidden shadow-xl">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-[#18191f] border-b border-white/[0.08] text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+              <th class="py-3.5 px-4">Old Control in JSX</th>
+              <th class="py-3.5 px-4">Decision</th>
+              <th class="py-3.5 px-4">New UX / Automated Behavior</th>
+              <th class="py-3.5 px-4">Technical Mapping in Script</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-white/[0.06] text-xs">
+            <tr class="hover:bg-white/[0.02]">
+              <td class="py-3.5 px-4 font-medium text-white">
+                Manual Scrollbar + <code class="font-mono text-[11px] text-gray-300">▲ / ▼</code> Buttons
+                <div class="text-[11px] text-gray-500 mt-0.5"><code>scrollBar</code>, <code>btnScrollUp</code>, <code>btnScrollDown</code></div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">Deleted</span>
+              </td>
+              <td class="py-3.5 px-4 text-gray-300">
+                Replaced by responsive 3-tab navigation when narrow (<code class="font-mono">&lt;540px</code>) and a 2-column grid when wide (<code class="font-mono">≥540px</code>). Eliminates 16px dead scrollbar chrome.
+              </td>
+              <td class="py-3.5 px-4 font-mono text-[11px] text-gray-400">
+                <code>win.onResize</code> toggles tabbed stack vs 2-col row
+              </td>
+            </tr>
+
+            <tr class="hover:bg-white/[0.02]">
+              <td class="py-3.5 px-4 font-medium text-white">
+                Asset Format Radio Buttons
+                <div class="text-[11px] text-gray-500 mt-0.5"><code>PNG (Universal 2020+)</code> vs <code>Vector SVG (AE 2024+)</code></div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">Automated</span>
+              </td>
+              <td class="py-3.5 px-4 text-gray-300">
+                Completely removed from UI. Script automatically uses crisp Vector SVG in AE 2024+ (<code class="font-mono">v24.0+</code>) and 512px Retina PNG in AE 2020–2023.
+              </td>
+              <td class="py-3.5 px-4 font-mono text-[11px] text-gray-400">
+                <code>preferSvg = (parseFloat(app.version) &gt;= 24.0)</code>
+              </td>
+            </tr>
+
+            <tr class="hover:bg-white/[0.02]">
+              <td class="py-3.5 px-4 font-medium text-white">
+                Separate Video &amp; JSON File Rows
+                <div class="text-[11px] text-gray-500 mt-0.5">2 labels, 2 <code>edittext</code> paths, 2 <code>Browse...</code> buttons</div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30">Unified</span>
+              </td>
+              <td class="py-3.5 px-4 text-gray-300">
+                Single Capture Source card. Selecting a video auto-pairs <code class="font-mono">&lt;video&gt;.cursor.json</code> and shows a green sync badge with sample count &amp; discreet Relink button.
+              </td>
+              <td class="py-3.5 px-4 font-mono text-[11px] text-gray-400">
+                <code>new File(f.fsName + ".cursor.json")</code>
+              </td>
+            </tr>
+
+            <tr class="hover:bg-white/[0.02]">
+              <td class="py-3.5 px-4 font-medium text-white">
+                "Vector Shape (Procedural)" Dropdown Option
+                <div class="text-[11px] text-gray-500 mt-0.5">5th item in <code>cursorDropdown</code></div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">Automated</span>
+              </td>
+              <td class="py-3.5 px-4 text-gray-300">
+                Removed from user-facing style cards. Kept strictly as an automatic silent fallback if cursor image assets are missing on disk.
+              </td>
+              <td class="py-3.5 px-4 font-mono text-[11px] text-gray-400">
+                Fallback inside <code>if (!assetFile.exists)</code>
+              </td>
+            </tr>
+
+            <tr class="hover:bg-white/[0.02]">
+              <td class="py-3.5 px-4 font-medium text-white">
+                Raw Spring Physics Float (<code class="font-mono">0.67</code>)
+                <div class="text-[11px] text-gray-500 mt-0.5"><code>smoothSlider</code> (10–150) + <code>smoothInput</code></div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">Translated</span>
+              </td>
+              <td class="py-3.5 px-4 text-gray-300">
+                Replaced with 4 human Motion Feel buttons: <strong>Natural</strong> (0.67), <strong>Snappy</strong> (0.32), <strong>Silky</strong> (1.15), and <strong>Raw</strong> (0.00).
+              </td>
+              <td class="py-3.5 px-4 font-mono text-[11px] text-gray-400">
+                Maps directly to <code>options.cursorSmoothing</code>
+              </td>
+            </tr>
+
+            <tr class="hover:bg-white/[0.02]">
+              <td class="py-3.5 px-4 font-medium text-white">
+                Physics Math Checkboxes
+                <div class="text-[11px] text-gray-500 mt-0.5"><code>PI/18 Tilt Physics</code>, <code>350ms Half-Sine 84%</code></div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">Simplified</span>
+              </td>
+              <td class="py-3.5 px-4 text-gray-300">
+                All 4 smart behaviors default to ON and are tucked into a collapsed-by-default <strong>Fine-Tune Physics</strong> accordion with plain-English labels.
+              </td>
+              <td class="py-3.5 px-4 font-mono text-[11px] text-gray-400">
+                <code>dynamicCursorStates</code>, <code>swayAmount</code>, <code>createClickBounce</code>, <code>enableMotionBlur</code>
+              </td>
+            </tr>
+
+            <tr class="hover:bg-white/[0.02]">
+              <td class="py-3.5 px-4 font-medium text-white">
+                Ripple VFX Dropdown + Hex Textbox
+                <div class="text-[11px] text-gray-500 mt-0.5"><code>fxDropdown</code> + <code>colorInput</code> (#2563EB)</div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30">Unified</span>
+              </td>
+              <td class="py-3.5 px-4 text-gray-300">
+                Merged into 1 compact row of 4 clickable color swatches (<code class="font-mono">#2563EB</code>, <code class="font-mono">#FFFFFF</code>, <code class="font-mono">#10B981</code>, <code class="font-mono">#F59E0B</code>) + an <strong>Off</strong> toggle.
+              </td>
+              <td class="py-3.5 px-4 font-mono text-[11px] text-gray-400">
+                Sets <code>clickEffect</code> &amp; <code>clickEffectColor</code>
+              </td>
+            </tr>
+
+            <tr class="hover:bg-white/[0.02]">
+              <td class="py-3.5 px-4 font-medium text-white">
+                45-Item Text Dropdown for Wallpapers
+                <div class="text-[11px] text-gray-500 mt-0.5"><code>bgDropdown</code> + separate <code>cursorCanvas</code> &amp; <code>bgCard</code></div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30">Unified</span>
+              </td>
+              <td class="py-3.5 px-4 text-gray-300">
+                Merged separate cursor &amp; background boxes into one interactive <strong>Live Composition Preview Stage</strong>, paired with 3×2 visual backdrop tiles + full 39-wallpaper picker.
+              </td>
+              <td class="py-3.5 px-4 font-mono text-[11px] text-gray-400">
+                Maps to <code>RECORDLY_WALLPAPERS</code> &amp; <code>BACKGROUND_PRESETS</code>
+              </td>
+            </tr>
+
+            <tr class="hover:bg-white/[0.02]">
+              <td class="py-3.5 px-4 font-medium text-white">
+                <code>[?] Help</code> Button &amp; Blocking <code>alert()</code> Modals
+                <div class="text-[11px] text-gray-500 mt-0.5"><code>helpBtn</code> + completion popup dialog</div>
+              </td>
+              <td class="py-3.5 px-4">
+                <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">Deleted</span>
+              </td>
+              <td class="py-3.5 px-4 text-gray-300">
+                Replaced by contextual <code class="font-mono">helpTip</code> tooltips, an inline non-blocking status bar, and an <strong>Update Active Rig</strong> mode when a TraceMotion comp is already open.
+              </td>
+              <td class="py-3.5 px-4 font-mono text-[11px] text-gray-400">
+                <code>statusTxt.text</code> + <code>updateTraceMotionRig()</code>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========================================================================
+       VIEW 3: EDITABLE AGENT PROMPT & EXTENDSCRIPT SPEC
+       ========================================================================= -->
+  <section id="view-spec" class="hidden flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 select-text">
+    <div class="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div>
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 mb-1.5">
+          Ready for Your Coding Agent • ES3/ES5 ExtendScript Spec
+        </span>
+        <h2 class="text-xl font-bold text-white tracking-tight">Editable UI/UX &amp; ExtendScript Implementation Prompt</h2>
+        <p class="text-xs text-gray-400 mt-0.5">
+          Edit any detail below if needed, then click <strong>Copy Spec for Agent</strong> to hand it directly to your AI coding agent.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onclick="resetAgentPrompt()"
+          class="tm-btn-transition px-3 py-2 rounded-lg bg-[#25272e] hover:bg-[#2e313a] border border-white/[0.1] text-xs font-medium text-gray-300 hover:text-white">
+          Reset Text
+        </button>
+        <button
+          id="copy-spec-btn"
+          type="button"
+          onclick="copyAgentSpec()"
+          class="tm-btn-transition inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cobalt hover:bg-cobalt-hover text-white text-xs font-semibold shadow-md shadow-blue-950/50">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+          </svg>
+          <span id="copy-spec-label">Copy Spec for Agent</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="rounded-2xl bg-[#1c1d22] border border-white/[0.1] overflow-hidden shadow-xl">
+      <div class="px-4 py-2 bg-[#18191f] border-b border-white/[0.08] flex items-center justify-between text-[11px] font-mono text-gray-400">
+        <span>PROMPT_SPEC_TRACEMOTION_AE_2020_2026.md</span>
+        <span id="spec-char-count">0 chars</span>
+      </div>
+      <textarea
+        id="agent-spec-textarea"
+        rows="22"
+        oninput="updateSpecCharCount()"
+        class="w-full p-4 bg-[#1c1d22] text-gray-200 font-mono text-xs leading-relaxed focus:outline-none resize-y"></textarea>
+    </div>
+  </section>
+
+  <!-- =========================================================================
+       INTERACTIVE LOGIC & STATE ENGINE
+       ========================================================================= -->
+  <script>
+    // -------------------------------------------------------------------------
+    // 1. Central UI State & Defaults
+    // -------------------------------------------------------------------------
+    const DEFAULTS = {
+      activeTab: 'setup',
+      isRigActive: false,
+      sampleIndex: 0,
+      telemetrySynced: true,
+      zoomMode: 'auto-cluster', // 'auto-cluster' | 'continuous' | 'static'
+      zoomDepth: 1.80,
+      motionFeel: 'natural',    // 'natural' | 'snappy' | 'silky' | 'raw'
+      autoStates: true,
+      sway: true,
+      bounce: true,
+      motionBlur: true,
+      cursorStyle: 'tahoe',     // 'tahoe' | 'macos' | 'windows11' | 'custom'
+      cursorSize: 100,
+      rippleColor: '#2563EB',   // hex or 'none'
+      backdrop: 'tahoe',        // 'tahoe' | 'midnight' | 'azure' | 'cherry' | 'studio' | 'none' | 'hyper' | 'sonoma'
+      cornerRadius: 20,
+      windowMargin: 12,
+      shadowDepth: 65,
+      cursorPos: { x: 56, y: 54 }
+    };
+
+    let state = JSON.parse(JSON.stringify(DEFAULTS));
+
+    const SAMPLE_CAPTURES = [
+      { video: 'Product_Demo_4K.mp4', meta: '3840×2160 • 60 fps • 00:42', json: 'Product_Demo_4K.mp4.cursor.json', pts: '1,420 pts' },
+      { video: 'Onboarding_Flow_1080p.mov', meta: '1920×1080 • 60 fps • 01:18', json: 'Onboarding_Flow_1080p.mov.cursor.json', pts: '2,890 pts' },
+      { video: 'Dashboard_Bug_Repro.mkv', meta: '2560×1440 • 30 fps • 00:19', json: 'Dashboard_Bug_Repro.mkv.cursor.json', pts: '570 pts' }
+    ];
+
+    const BACKDROP_STYLES = {
+      tahoe: {
+        label: 'Tahoe',
+        css: 'linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)',
+        isChecker: false
+      },
+      midnight: {
+        label: 'Midnight',
+        css: 'radial-gradient(circle at 30% 25%, #1e293b 0%, #090d16 100%)',
+        isChecker: false
+      },
+      azure: {
+        label: 'Azure',
+        css: 'linear-gradient(135deg, #2563EB 0%, #0F172A 100%)',
+        isChecker: false
+      },
+      cherry: {
+        label: 'Cherry',
+        css: 'linear-gradient(135deg, #F43F5E 0%, #7C3AED 100%)',
+        isChecker: false
+      },
+      studio: {
+        label: 'Studio',
+        css: 'radial-gradient(circle at 50% 35%, #27272a 0%, #09090b 100%)',
+        isChecker: false
+      },
+      none: {
+        label: 'None',
+        css: '',
+        isChecker: true
+      },
+      hyper: {
+        label: 'Hyper 04',
+        css: 'linear-gradient(135deg, #06B6D4 0%, #3B82F6 50%, #6366F1 100%)',
+        isChecker: false
+      },
+      sonoma: {
+        label: 'Sonoma',
+        css: 'linear-gradient(135deg, #F59E0B 0%, #EA580C 55%, #1E1B4B 100%)',
+        isChecker: false
+      }
+    };
+
+    const CURSOR_SVGS = {
+      tahoe: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));">
+        <path d="M4 2L4 19L8.6 14.9L11.8 21.2L14.4 19.9L11.2 13.6L17.2 13.6L4 2Z" fill="#FFFFFF" stroke="#111216" stroke-width="1.6" stroke-linejoin="round"/>
+      </svg>`,
+      macos: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));">
+        <path d="M5 2.5L5 18.5L9.1 14.8L12 20.8L14.3 19.7L11.4 13.7L17 13.7L5 2.5Z" fill="#111216" stroke="#FFFFFF" stroke-width="1.7" stroke-linejoin="round"/>
+      </svg>`,
+      windows11: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));">
+        <path d="M3 2L3 19.5L7.6 15.8L10.6 21.3L13.2 20L10.2 14.5L16.5 14.5L3 2Z" fill="#F8FAFC" stroke="#1E293B" stroke-width="1.5" stroke-linejoin="round"/>
+      </svg>`,
+      custom: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));">
+        <path d="M3 3L9.2 20.5L12.2 13.2L19.5 10.2L3 3Z" fill="#0F172A" stroke="#FFFFFF" stroke-width="1.7" stroke-linejoin="round"/>
+      </svg>`
+    };
+
+    // -------------------------------------------------------------------------
+    // 2. Top Harness View Switcher & Workspace Resizer
+    // -------------------------------------------------------------------------
+    function switchMainView(viewName) {
+      const views = ['panel', 'audit', 'spec'];
+      views.forEach(v => {
+        const el = document.getElementById('view-' + v);
+        const btn = document.getElementById('view-btn-' + v);
+        const isActive = (v === viewName);
+        if (el) el.classList.toggle('hidden', !isActive);
+        if (btn) {
+          btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          btn.className = isActive
+            ? 'tm-btn-transition px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium bg-cobalt text-white shadow-sm'
+            : 'tm-btn-transition px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium text-gray-400 hover:text-gray-200';
+        }
+      });
+
+      const harnessControls = document.getElementById('harness-panel-controls');
+      if (harnessControls) {
+        harnessControls.classList.toggle('hidden', viewName !== 'panel');
+      }
+    }
+
+    function applyPresetSize(width, height, btnEl) {
+      const shell = document.getElementById('ae-panel-shell');
+      if (!shell) return;
+      shell.style.width = width + 'px';
+      shell.style.height = height + 'px';
+
+      document.querySelectorAll('.preset-btn').forEach(b => {
+        b.className = 'preset-btn tm-btn-transition px-2 py-1 rounded text-[11px] font-medium text-gray-400 hover:text-white hover:bg-white/[0.05]';
+      });
+      if (btnEl) {
+        btnEl.className = 'preset-btn tm-btn-transition px-2 py-1 rounded text-[11px] font-medium bg-[#25272e] text-white border border-white/[0.1]';
+      } else {
+        const match = document.querySelector(`.preset-btn[data-preset="${width}x${height}"]`);
+        if (match) {
+          match.className = 'preset-btn tm-btn-transition px-2 py-1 rounded text-[11px] font-medium bg-[#25272e] text-white border border-white/[0.1]';
+        }
+      }
+      syncResponsiveSections();
+    }
+
+    // Reposition Cursor & Frame sections cleanly between Single-Column Tabbed (<540px) and 2-Column Studio (>=540px)
+    function syncResponsiveSections() {
+      const shell = document.getElementById('ae-panel-shell');
+      if (!shell) return;
+      const w = Math.round(shell.offsetWidth);
+      const h = Math.round(shell.offsetHeight);
+
+      const dimText = document.getElementById('live-dim-text');
+      const layoutBadge = document.getElementById('live-layout-badge');
+      if (dimText) dimText.textContent = `${w} × ${h}`;
+
+      const isWide = w >= 540;
+      const isCompactH = h <= 390;
+      if (layoutBadge) {
+        if (isWide) {
+          layoutBadge.textContent = '2-Col Studio';
+          layoutBadge.className = 'text-emerald-400';
+        } else if (isCompactH) {
+          layoutBadge.textContent = 'Compact Tabs';
+          layoutBadge.className = 'text-amber-400';
+        } else {
+          layoutBadge.textContent = 'Tabbed';
+          layoutBadge.className = 'text-blue-400';
+        }
+      }
+
+      const leftCol = shell.querySelector('.tm-col-left');
+      const rightCol = document.getElementById('tm-right-column');
+      const secCursor = document.getElementById('sec-cursor');
+      const secFrame = document.getElementById('sec-frame');
+
+      if (isWide) {
+        if (secCursor && secCursor.parentElement !== rightCol) rightCol.appendChild(secCursor);
+        if (secFrame && secFrame.parentElement !== rightCol) rightCol.appendChild(secFrame);
+      } else {
+        if (secCursor && secCursor.parentElement !== leftCol) leftCol.appendChild(secCursor);
+        if (secFrame && secFrame.parentElement !== leftCol) leftCol.appendChild(secFrame);
+      }
+    }
+
+    // Observe resize events on the panel container
+    const panelResizeObserver = new ResizeObserver(() => {
+      syncResponsiveSections();
+    });
+
+    // Custom pointer drag support on the bottom-right corner grip (works seamlessly on touch & desktop)
+    function initCustomCornerDrag() {
+      const grip = document.getElementById('custom-resize-grip');
+      const shell = document.getElementById('ae-panel-shell');
+      if (!grip || !shell) return;
+
+      let dragging = false;
+      let startX = 0, startY = 0, startW = 0, startH = 0;
+
+      const onMove = (clientX, clientY) => {
+        if (!dragging) return;
+        const dx = clientX - startX;
+        const dy = clientY - startY;
+        const maxW = Math.min(960, window.innerWidth - 24);
+        const maxH = Math.max(320, window.innerHeight - 130);
+        const newW = Math.max(240, Math.min(maxW, startW + dx));
+        const newH = Math.max(300, Math.min(maxH, startH + dy));
+        shell.style.width = newW + 'px';
+        shell.style.height = newH + 'px';
+        syncResponsiveSections();
+      };
+
+      grip.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        dragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startW = shell.offsetWidth;
+        startH = shell.offsetHeight;
+        shell.classList.add('is-resizing');
+      });
+
+      window.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+      window.addEventListener('mouseup', () => {
+        if (dragging) {
+          dragging = false;
+          shell.classList.remove('is-resizing');
+        }
+      });
+
+      grip.addEventListener('touchstart', (e) => {
+        if (!e.touches[0]) return;
+        dragging = true;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        startW = shell.offsetWidth;
+        startH = shell.offsetHeight;
+        shell.classList.add('is-resizing');
+      }, { passive: true });
+
+      window.addEventListener('touchmove', (e) => {
+        if (dragging && e.touches[0]) {
+          onMove(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      }, { passive: true });
+
+      window.addEventListener('touchend', () => {
+        if (dragging) {
+          dragging = false;
+          shell.classList.remove('is-resizing');
+        }
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. Active Rig State Toggle ("No Active Rig" vs "Active Rig Open")
+    // -------------------------------------------------------------------------
+    function toggleActiveRigState() {
+      state.isRigActive = !state.isRigActive;
+      renderRigState();
+    }
+
+    function renderRigState() {
+      const toggleBtn = document.getElementById('rig-state-toggle');
+      const toggleDot = document.getElementById('rig-toggle-dot');
+      const toggleLabel = document.getElementById('rig-toggle-label');
+
+      const pillDot = document.getElementById('panel-status-dot');
+      const pillText = document.getElementById('panel-status-text');
+      const ctaLabel = document.getElementById('primary-cta-label');
+      const ctaBtn = document.getElementById('primary-cta-btn');
+
+      if (state.isRigActive) {
+        toggleBtn.setAttribute('aria-pressed', 'true');
+        toggleBtn.className = 'tm-btn-transition inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/15 hover:bg-emerald-500/20 border border-emerald-500/40 text-emerald-200';
+        toggleDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+        toggleLabel.textContent = 'Active Rig Open';
+
+        pillDot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse';
+        pillText.textContent = 'Rig Active';
+        ctaLabel.textContent = 'Update Active Rig';
+        ctaBtn.className = 'tm-btn-transition flex-1 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white text-xs font-semibold shadow-md shadow-emerald-950/50 flex items-center justify-center gap-1.5';
+      } else {
+        toggleBtn.setAttribute('aria-pressed', 'false');
+        toggleBtn.className = 'tm-btn-transition inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#25272e] hover:bg-[#2e313a] border border-white/[0.1] text-gray-200';
+        toggleDot.className = 'w-2 h-2 rounded-full bg-gray-500';
+        toggleLabel.textContent = 'No Active Rig';
+
+        pillDot.className = 'w-1.5 h-1.5 rounded-full bg-blue-400';
+        pillText.textContent = 'AE 2020+';
+        ctaLabel.textContent = 'Build TraceMotion Rig';
+        ctaBtn.className = 'tm-btn-transition flex-1 py-2 px-3 rounded-lg bg-cobalt hover:bg-cobalt-hover active:scale-[0.99] text-white text-xs font-semibold shadow-md shadow-blue-950/50 flex items-center justify-center gap-1.5';
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Panel Tab Navigation (< 540px mode)
+    // -------------------------------------------------------------------------
+    function selectPanelTab(tabName) {
+      state.activeTab = tabName;
+      ['setup', 'cursor', 'frame'].forEach(t => {
+        const btn = document.getElementById('tab-btn-' + t);
+        const sec = document.getElementById('sec-' + t);
+        const active = (t === tabName);
+        if (btn) {
+          btn.setAttribute('aria-selected', active ? 'true' : 'false');
+          btn.className = active
+            ? 'tm-tab-btn tm-btn-transition py-1.5 px-2 rounded-md text-xs font-semibold bg-cobalt text-white shadow-sm'
+            : 'tm-tab-btn tm-btn-transition py-1.5 px-2 rounded-md text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]';
+        }
+        if (sec) {
+          sec.classList.toggle('is-active-tab', active);
+        }
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Interactive Miniature Composition Preview Stage
+    // -------------------------------------------------------------------------
+    let zoomResetTimer = null;
+
+    function handleStageClick(event) {
+      const stage = document.getElementById('preview-stage');
+      if (!stage) return;
+      const rect = stage.getBoundingClientRect();
+      const relX = Math.max(6, Math.min(94, ((event.clientX - rect.left) / rect.width) * 100));
+      const relY = Math.max(8, Math.min(92, ((event.clientY - rect.top) / rect.height) * 100));
+      triggerCursorActionAt(relX, relY);
+    }
+
+    function simulateCenterClick() {
+      const targetX = 32 + Math.round(Math.random() * 38);
+      const targetY = 30 + Math.round(Math.random() * 42);
+      triggerCursorActionAt(targetX, targetY);
+    }
+
+    function triggerCursorActionAt(pctX, pctY) {
+      const cursorEl = document.getElementById('stage-cursor');
+      const rippleLayer = document.getElementById('stage-ripple-layer');
+      const cameraRig = document.getElementById('stage-camera-rig');
+      if (!cursorEl) return;
+
+      const dx = pctX - state.cursorPos.x;
+      state.cursorPos = { x: pctX, y: pctY };
+
+      // Motion feel timing curve
+      const feelDurations = {
+        natural: '360ms cubic-bezier(0.22, 1, 0.36, 1)',
+        snappy: '190ms cubic-bezier(0.16, 1, 0.3, 1)',
+        silky: '580ms cubic-bezier(0.25, 1, 0.5, 1)',
+        raw: '60ms linear'
+      };
+      cursorEl.style.transition = `left ${feelDurations[state.motionFeel]}, top ${feelDurations[state.motionFeel]}, transform 170ms ease-out`;
+
+      // Velocity tilt sway if enabled
+      const tiltDeg = state.sway ? Math.max(-16, Math.min(16, dx * 0.45)) : 0;
+      const scaleFactor = state.cursorSize / 100;
+
+      cursorEl.style.left = pctX + '%';
+      cursorEl.style.top = pctY + '%';
+      cursorEl.style.transform = `scale(${scaleFactor}) rotate(${tiltDeg}deg)`;
+
+      // Click Bounce compression (84% scale) + Ripple ring
+      setTimeout(() => {
+        if (state.bounce) {
+          cursorEl.style.transform = `scale(${scaleFactor * 0.84}) rotate(0deg)`;
+        } else {
+          cursorEl.style.transform = `scale(${scaleFactor}) rotate(0deg)`;
+        }
+
+        // Spawn Ripple Ring if enabled
+        if (state.rippleColor !== 'none' && rippleLayer) {
+          const ring = document.createElement('span');
+          ring.className = 'animate-ripple absolute rounded-full pointer-events-none';
+          ring.style.left = pctX + '%';
+          ring.style.top = pctY + '%';
+          ring.style.width = Math.round(46 * scaleFactor) + 'px';
+          ring.style.height = Math.round(46 * scaleFactor) + 'px';
+          ring.style.border = `2.5px solid ${state.rippleColor}`;
+          ring.style.boxShadow = `0 0 10px ${state.rippleColor}66`;
+          rippleLayer.appendChild(ring);
+          setTimeout(() => ring.remove(), 600);
+        }
+
+        // Restore cursor scale after bounce
+        setTimeout(() => {
+          cursorEl.style.transform = `scale(${scaleFactor}) rotate(0deg)`;
+        }, 160);
+      }, state.motionFeel === 'raw' ? 50 : 210);
+
+      // Subtle Smart Zoom preview pulse when Auto Zoom or Follow is active
+      if (cameraRig && state.zoomMode !== 'static') {
+        const previewZoom = Math.min(1.45, 1 + (state.zoomDepth - 1) * 0.32);
+        const panX = (50 - pctX) * 0.28;
+        const panY = (50 - pctY) * 0.28;
+        cameraRig.style.transform = `scale(${previewZoom}) translate(${panX}px, ${panY}px)`;
+
+        clearTimeout(zoomResetTimer);
+        if (state.zoomMode === 'auto-cluster') {
+          zoomResetTimer = setTimeout(() => {
+            cameraRig.style.transform = 'scale(1) translate(0px, 0px)';
+          }, 1350);
+        }
+      }
+    }
+
+    function updatePreviewVisuals() {
+      const stage = document.getElementById('preview-stage');
+      const winFrame = document.getElementById('stage-window-frame');
+      const cursorEl = document.getElementById('stage-cursor');
+      const zoomBadge = document.getElementById('stage-zoom-badge');
+      const compactSwatch = document.getElementById('compact-bg-swatch');
+      const compactSummary = document.getElementById('compact-summary-txt');
+
+      // 1. Backdrop
+      const bgDef = BACKDROP_STYLES[state.backdrop] || BACKDROP_STYLES.tahoe;
+      if (stage) {
+        if (bgDef.isChecker) {
+          stage.style.background = '';
+          stage.classList.add('checkerboard-bg');
+        } else {
+          stage.classList.remove('checkerboard-bg');
+          stage.style.background = bgDef.css;
+        }
+      }
+      if (compactSwatch) {
+        if (bgDef.isChecker) {
+          compactSwatch.style.background = '';
+          compactSwatch.classList.add('checkerboard-bg');
+        } else {
+          compactSwatch.classList.remove('checkerboard-bg');
+          compactSwatch.style.background = bgDef.css;
+        }
+      }
+
+      // 2. Window Margin, Corner Radius & Multi-Stage Soft Drop Shadow
+      if (winFrame) {
+        const pctSize = Math.round(100 - state.windowMargin * 1.6);
+        winFrame.style.width = pctSize + '%';
+        winFrame.style.height = pctSize + '%';
+        winFrame.style.borderRadius = Math.round(state.cornerRadius * 0.55) + 'px';
+
+        const shOp = (state.shadowDepth / 100) * 0.72;
+        const shBlur = Math.round(8 + (state.shadowDepth / 100) * 28);
+        const shDist = Math.round(4 + (state.shadowDepth / 100) * 12);
+        winFrame.style.boxShadow = state.shadowDepth > 0
+          ? `0 ${shDist}px ${shBlur}px rgba(0, 0, 0, ${shOp.toFixed(2)}), 0 2px 6px rgba(0, 0, 0, ${(shOp * 0.5).toFixed(2)})`
+          : 'none';
+      }
+
+      // 3. Cursor Graphic & Scale
+      if (cursorEl) {
+        cursorEl.innerHTML = CURSOR_SVGS[state.cursorStyle] || CURSOR_SVGS.tahoe;
+        const s = state.cursorSize / 100;
+        cursorEl.style.transform = `scale(${s}) rotate(0deg)`;
+      }
+
+      // 4. Zoom Badge & Compact Bar Summary
+      if (zoomBadge) {
+        if (state.zoomMode === 'static') {
+          zoomBadge.textContent = '1.00x Static';
+        } else if (state.zoomMode === 'continuous') {
+          zoomBadge.textContent = `${state.zoomDepth.toFixed(2)}x Follow`;
+        } else {
+          zoomBadge.textContent = `${state.zoomDepth.toFixed(2)}x Auto`;
+        }
+      }
+
+      if (compactSummary) {
+        const zStr = state.zoomMode === 'static' ? 'Static' : `${state.zoomDepth.toFixed(2)}x`;
+        compactSummary.textContent = `${bgDef.label} • ${zStr} • ${state.cornerRadius}px`;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. Control Handlers (Setup, Cursor, Frame)
+    // -------------------------------------------------------------------------
+    function cycleSampleCapture() {
+      state.sampleIndex = (state.sampleIndex + 1) % SAMPLE_CAPTURES.length;
+      state.telemetrySynced = true;
+      renderCaptureCard();
+      showPanelToast('Loaded sample: ' + SAMPLE_CAPTURES[state.sampleIndex].video);
+    }
+
+    function triggerFilePickerSim() {
+      cycleSampleCapture();
+    }
+
+    function relinkTelemetrySim() {
+      state.telemetrySynced = !state.telemetrySynced;
+      renderCaptureCard();
+    }
+
+    function renderCaptureCard() {
+      const cap = SAMPLE_CAPTURES[state.sampleIndex];
+      document.getElementById('capture-video-name').textContent = cap.video;
+      document.getElementById('capture-meta-line').textContent = cap.meta;
+
+      const badge = document.getElementById('telemetry-sync-badge');
+      const statusTxt = document.getElementById('telemetry-status-text');
+      if (state.telemetrySynced) {
+        badge.querySelector('span').className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0';
+        statusTxt.className = 'text-[10px] font-medium text-emerald-300 truncate';
+        statusTxt.textContent = `Auto-paired .cursor.json (${cap.pts})`;
+      } else {
+        badge.querySelector('span').className = 'w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0';
+        statusTxt.className = 'text-[10px] font-medium text-amber-300 truncate';
+        statusTxt.textContent = 'No companion JSON — click Relink';
+      }
+    }
+
+    function setZoomMode(mode) {
+      state.zoomMode = mode;
+      const hints = {
+        'auto-cluster': 'Clicks & pauses',
+        'continuous': 'Deadband camera follow',
+        'static': 'Full frame 100%'
+      };
+      document.getElementById('zoom-mode-hint').textContent = hints[mode] || '';
+
+      document.querySelectorAll('.zoom-mode-btn').forEach(btn => {
+        const active = btn.dataset.zoomMode === mode;
+        btn.setAttribute('aria-checked', active ? 'true' : 'false');
+        btn.className = active
+          ? 'zoom-mode-btn tm-btn-transition py-1.5 px-1.5 rounded-md text-[11px] font-semibold bg-cobalt text-white shadow-sm'
+          : 'zoom-mode-btn tm-btn-transition py-1.5 px-1.5 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-200';
+      });
+
+      const depthGroup = document.getElementById('zoom-depth-group');
+      const depthSlider = document.getElementById('slider-zoom-depth');
+      const isStatic = (mode === 'static');
+      depthGroup.classList.toggle('opacity-45', isStatic);
+      depthSlider.disabled = isStatic;
+
+      if (isStatic) {
+        const cameraRig = document.getElementById('stage-camera-rig');
+        if (cameraRig) cameraRig.style.transform = 'scale(1) translate(0px, 0px)';
+      }
+
+      updatePreviewVisuals();
+    }
+
+    function updateZoomDepth(val) {
+      state.zoomDepth = parseFloat(val);
+      document.getElementById('val-zoom-depth').textContent = state.zoomDepth.toFixed(2) + 'x';
+      updatePreviewVisuals();
+    }
+
+    function setMotionFeel(feel) {
+      state.motionFeel = feel;
+      const descs = {
+        natural: 'Balanced spring',
+        snappy: 'Fast & crisp',
+        silky: 'Cinematic glide',
+        raw: '1:1 unfiltered'
+      };
+      document.getElementById('motion-feel-desc').textContent = descs[feel] || '';
+
+      document.querySelectorAll('.feel-btn').forEach(btn => {
+        const active = btn.dataset.feel === feel;
+        btn.setAttribute('aria-checked', active ? 'true' : 'false');
+        btn.className = active
+          ? 'feel-btn tm-btn-transition py-1.5 px-1 rounded-md text-[11px] font-semibold bg-cobalt text-white shadow-sm'
+          : 'feel-btn tm-btn-transition py-1.5 px-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-200';
+      });
+
+      simulateCenterClick();
+    }
+
+    function togglePhysicsAccordion() {
+      const btn = document.getElementById('accordion-physics-btn');
+      const body = document.getElementById('accordion-physics-body');
+      const chev = document.getElementById('accordion-chevron');
+      const expanded = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', (!expanded).toString());
+      body.classList.toggle('hidden', expanded);
+      body.classList.toggle('flex', !expanded);
+      chev.style.transform = !expanded ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+
+    function updatePhysicsCount() {
+      state.autoStates = document.getElementById('chk-auto-states').checked;
+      state.sway = document.getElementById('chk-sway').checked;
+      state.bounce = document.getElementById('chk-bounce').checked;
+      state.motionBlur = document.getElementById('chk-blur').checked;
+
+      const count = [state.autoStates, state.sway, state.bounce, state.motionBlur].filter(Boolean).length;
+      document.getElementById('physics-active-count').textContent = `${count}/4 on`;
+    }
+
+    function selectCursorStyle(styleKey) {
+      state.cursorStyle = styleKey;
+      document.querySelectorAll('.cursor-card').forEach(card => {
+        const active = card.dataset.cursor === styleKey;
+        card.setAttribute('aria-checked', active ? 'true' : 'false');
+        if (active) {
+          card.className = 'cursor-card tm-btn-transition flex items-center gap-2.5 p-2 rounded-xl bg-cobalt/15 border border-blue-500 text-left';
+          card.querySelector('div:last-child div:first-child').className = 'text-xs font-semibold text-white truncate';
+        } else {
+          card.className = 'cursor-card tm-btn-transition flex items-center gap-2.5 p-2 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08] text-left';
+          card.querySelector('div:last-child div:first-child').className = 'text-xs font-semibold text-gray-200 truncate';
+        }
+      });
+      updatePreviewVisuals();
+      simulateCenterClick();
+    }
+
+    function updateCursorSize(val) {
+      state.cursorSize = parseInt(val, 10);
+      document.getElementById('val-cursor-size').textContent = state.cursorSize + '%';
+      updatePreviewVisuals();
+    }
+
+    function selectRippleColor(color) {
+      state.rippleColor = color;
+      document.getElementById('val-ripple-label').textContent = color === 'none' ? 'Disabled' : color;
+      document.getElementById('val-ripple-label').className = color === 'none'
+        ? 'font-mono text-[10px] text-gray-500'
+        : 'font-mono text-[10px] text-blue-400';
+
+      document.querySelectorAll('.ripple-swatch').forEach(sw => {
+        const active = sw.dataset.ripple === color;
+        sw.setAttribute('aria-checked', active ? 'true' : 'false');
+        if (sw.dataset.ripple === 'none') {
+          sw.className = active
+            ? 'ripple-swatch tm-btn-transition ml-auto px-2.5 h-7 rounded-lg bg-cobalt text-white text-[11px] font-semibold'
+            : 'ripple-swatch tm-btn-transition ml-auto px-2.5 h-7 rounded-lg bg-[#25272e] hover:bg-[#2e313a] border border-white/[0.1] text-[11px] font-medium text-gray-300';
+        } else {
+          sw.classList.toggle('ring-2', active);
+          sw.classList.toggle('ring-white', active);
+          sw.classList.toggle('ring-offset-2', active);
+          sw.classList.toggle('ring-offset-[#1c1d22]', active);
+          sw.classList.toggle('opacity-100', active);
+          sw.classList.toggle('opacity-75', !active);
+        }
+      });
+
+      if (color !== 'none') simulateCenterClick();
+    }
+
+    function selectBackdrop(bgKey) {
+      state.backdrop = bgKey;
+      document.querySelectorAll('.bg-tile').forEach(tile => {
+        const active = tile.dataset.bg === bgKey;
+        tile.setAttribute('aria-checked', active ? 'true' : 'false');
+        if (active) {
+          tile.className = 'bg-tile tm-btn-transition group flex flex-col items-center gap-1 p-1 rounded-xl bg-cobalt/15 border border-blue-500';
+          tile.querySelector('span:last-child').className = 'text-[10px] font-semibold text-white';
+        } else {
+          tile.className = 'bg-tile tm-btn-transition group flex flex-col items-center gap-1 p-1 rounded-xl bg-[#25272e] hover:bg-[#2d3039] border border-white/[0.08]';
+          tile.querySelector('span:last-child').className = 'text-[10px] font-medium text-gray-300';
+        }
+      });
+      updatePreviewVisuals();
+    }
+
+    function selectFullLibraryWallpaper(val) {
+      selectBackdrop(val);
+    }
+
+    function updateCornerRadius(val) {
+      state.cornerRadius = parseInt(val, 10);
+      document.getElementById('val-radius').textContent = state.cornerRadius + 'px';
+      updatePreviewVisuals();
+    }
+
+    function updateWindowMargin(val) {
+      state.windowMargin = parseInt(val, 10);
+      document.getElementById('val-margin').textContent = state.windowMargin + '%';
+      updatePreviewVisuals();
+    }
+
+    function updateShadowDepth(val) {
+      state.shadowDepth = parseInt(val, 10);
+      document.getElementById('val-shadow').textContent = state.shadowDepth + '%';
+      updatePreviewVisuals();
+    }
+
+    // -------------------------------------------------------------------------
+    // 7. Primary Action, Inline Toast & Reset
+    // -------------------------------------------------------------------------
+    function showPanelToast(msg) {
+      const toast = document.getElementById('panel-toast');
+      const txt = document.getElementById('panel-toast-msg');
+      if (!toast || !txt) return;
+      txt.textContent = msg;
+      toast.classList.remove('hidden');
+      clearTimeout(toast._hideTimer);
+      toast._hideTimer = setTimeout(() => toast.classList.add('hidden'), 3600);
+    }
+
+    function hidePanelToast() {
+      const toast = document.getElementById('panel-toast');
+      if (toast) toast.classList.add('hidden');
+    }
+
+    function executePrimaryBuild() {
+      const cap = SAMPLE_CAPTURES[state.sampleIndex];
+      const baseName = cap.video.replace(/\.[^\.]+$/, '');
+      simulateCenterClick();
+
+      if (state.isRigActive) {
+        showPanelToast(`Updated rig: ${baseName}_TraceMotion`);
+      } else {
+        state.isRigActive = true;
+        renderRigState();
+        showPanelToast(`Built rig: ${baseName}_TraceMotion`);
+      }
+    }
+
+    function resetAllDefaults() {
+      const keepRigState = state.isRigActive;
+      state = JSON.parse(JSON.stringify(DEFAULTS));
+      state.isRigActive = keepRigState;
+
+      // Sync DOM sliders & checkboxes
+      document.getElementById('slider-zoom-depth').value = state.zoomDepth;
+      document.getElementById('val-zoom-depth').textContent = state.zoomDepth.toFixed(2) + 'x';
+
+      document.getElementById('slider-cursor-size').value = state.cursorSize;
+      document.getElementById('val-cursor-size').textContent = state.cursorSize + '%';
+
+      document.getElementById('slider-radius').value = state.cornerRadius;
+      document.getElementById('val-radius').textContent = state.cornerRadius + 'px';
+
+      document.getElementById('slider-margin').value = state.windowMargin;
+      document.getElementById('val-margin').textContent = state.windowMargin + '%';
+
+      document.getElementById('slider-shadow').value = state.shadowDepth;
+      document.getElementById('val-shadow').textContent = state.shadowDepth + '%';
+
+      document.getElementById('chk-auto-states').checked = true;
+      document.getElementById('chk-sway').checked = true;
+      document.getElementById('chk-bounce').checked = true;
+      document.getElementById('chk-blur').checked = true;
+      updatePhysicsCount();
+
+      setZoomMode('auto-cluster');
+      setMotionFeel('natural');
+      selectCursorStyle('tahoe');
+      selectRippleColor('#2563EB');
+      selectBackdrop('tahoe');
+      renderCaptureCard();
+      showPanelToast('Reset all parameters to Recordly defaults');
+    }
+
+    // -------------------------------------------------------------------------
+    // 8. Editable Agent Prompt Spec & Clipboard Copy
+    // -------------------------------------------------------------------------
+    const DEFAULT_AGENT_SPEC = `# Task: Redesign TraceMotionImporter.jsx UI/UX for Adobe After Effects CC 2020–2026+
+
+Refactor \`buildUI(thisObj)\` in \`TraceMotionImporter.jsx\` (pure ES3/ES5 ExtendScript, compatible with AE v17.0 through v26+) to eliminate cockpit clutter, remove redundant controls, and support fluid docking in narrow, compact, and wide After Effects workspaces.
+
+## 1. Delete & Automate These Legacy Controls
+1. **DELETE Manual Scrollbar & Arrow Buttons**: Remove \`scrollBar\`, \`btnScrollUp\`, \`btnScrollDown\`, and \`scrollViewport\`. Use a clean 3-tab layout (\`Setup\` | \`Cursor\` | \`Frame\`) when panel width < 540px, and a 2-column studio layout when panel width >= 540px.
+2. **AUTOMATE Asset Format (PNG vs SVG)**: Remove \`radPng\` and \`radSvg\` radio buttons. Automatically set \`preferSvg = (parseFloat(app.version) >= 24.0)\` so AE 2024+ uses Vector SVG and AE 2020–2023 uses 512px Retina PNG.
+3. **HIDE Procedural Cursor Fallback**: Remove \`"Vector Shape (Procedural)"\` from the user-facing cursor selector. Keep only the 4 real styles (\`macOS Tahoe\`, \`macOS Classic\`, \`Windows 11\`, \`Figma Minimal\`), and use procedural vector shape silently only if asset files are missing on disk.
+4. **UNIFY File Ingest**: Replace the 2 separate file input rows with a single **"Select Recording..."** picker button + status card. Automatically detect \`<video>.cursor.json\` and display a green sync badge (\`✓ Synced .cursor.json\`), exposing a small \`Relink JSON\` button only if missing or overridden.
+5. **REPLACE Blocking \`alert()\` Popups**: Remove the \`[?] Help\` button and completion \`alert()\` modal. Display non-blocking status messages in a dedicated footer status line and use \`helpTip\` tooltips on controls.
+
+## 2. Translate Physics Jargon into Human Controls
+- **Motion Feel (4-way selector)** replacing \`smoothSlider\` / \`smoothInput\`:
+  - \`Natural\` -> \`cursorSmoothing = 0.67, motionPreset = "smooth"\`
+  - \`Snappy\`  -> \`cursorSmoothing = 0.32, motionPreset = "focused"\`
+  - \`Silky\`   -> \`cursorSmoothing = 1.15, motionPreset = "smooth"\`
+  - \`Raw\`     -> \`cursorSmoothing = 0.00, motionPreset = "focused"\`
+- **Fine-Tune Physics (Collapsed-by-Default Group/Accordion)** containing 4 plain-English checkboxes (all \`true\` by default):
+  - \`Auto Cursor States\` -> \`options.dynamicCursorStates\`
+  - \`Velocity Tilt Sway\` -> \`options.swayAmount = checked ? 0.4 : 0.0\`
+  - \`Click Bounce\`       -> \`options.createClickBounce\`
+  - \`Motion Blur\`        -> \`options.enableMotionBlur\`
+
+## 3. Clean 3-Section Information Architecture
+- **Sticky Header**: \`TraceMotion Studio\` title + live status pill (\`AE 2020+ Ready\` or \`● Rig Active: <CompName>\`).
+- **Section 1 — Setup**:
+  - Single-action Capture Source picker + auto-paired \`.cursor.json\` sync badge.
+  - Camera Zoom 3-way selector: \`Auto Zoom\` (\`auto-cluster\`), \`Follow\` (\`continuous\`), \`Static\` (\`static\`).
+  - Zoom Depth slider (\`1.20x\` to \`3.20x\`, default \`1.80x\`, disabled when \`Static\`).
+  - Motion Feel 4-way selector (\`Natural\` | \`Snappy\` | \`Silky\` | \`Raw\`).
+  - Collapsed \`Fine-Tune Physics\` toggle group.
+- **Section 2 — Cursor**:
+  - 4 visual Cursor Style selector cards (\`macOS Tahoe\`, \`macOS Classic\`, \`Windows 11\`, \`Figma Minimal\`) with live hotspot readout.
+  - Cursor Size slider (\`50%\`–\`200%\`, default \`100%\`).
+  - Click Ripple inline swatch buttons (\`#2563EB\`, \`#FFFFFF\`, \`#10B981\`, \`#F59E0B\`, \`Off\`).
+- **Section 3 — Frame**:
+  - Quick Backdrop swatches (\`Tahoe\`, \`Midnight\`, \`Azure\`, \`Cherry\`, \`Studio\`, \`None\`) + full 39-wallpaper dropdown (\`RECORDLY_WALLPAPERS\`).
+  - Sliders for \`Corner Radius\` (\`0–48px\`, default \`20px\`), \`Window Margin\` (\`0–25%\`, default \`12%\`), and \`Drop Shadow\` (\`0–100%\`, default \`65%\`).
+
+## 4. Responsive Workspace Resizing (\`win.onResize\`) & Live Rig Updates
+- Hook \`win.onResizing = win.onResize\` to inspect \`win.size[0]\`:
+  - When \`win.size[0] >= 540\`: hide tab buttons and show \`Setup\` on the left column and \`Cursor + Frame\` on the right column side-by-side.
+  - When \`win.size[0] < 540\`: show the 3-tab bar (\`Setup | Cursor | Frame\`) and stack vertically.
+- Detect active TraceMotion comp (\`app.project.activeItem.layer("TraceMotion_Camera_Controller")\`). When active, switch primary CTA from **"★ Build TraceMotion Rig"** to **"↻ Update Active Rig"**, updating \`TraceMotion_Camera_Controller\` effect sliders (\`Canvas Margin\`, \`Corner Radius\`, \`Shadow Intensity\`, \`Cursor Sway\`) and ripple colors in place without rebuilding the composition.`;
+
+    function updateSpecCharCount() {
+      const ta = document.getElementById('agent-spec-textarea');
+      const count = document.getElementById('spec-char-count');
+      if (ta && count) {
+        count.textContent = `${ta.value.length.toLocaleString()} chars`;
+      }
+    }
+
+    function resetAgentPrompt() {
+      const ta = document.getElementById('agent-spec-textarea');
+      if (ta) {
+        ta.value = DEFAULT_AGENT_SPEC;
+        updateSpecCharCount();
+      }
+    }
+
+    function copyAgentSpec() {
+      const ta = document.getElementById('agent-spec-textarea');
+      const lbl = document.getElementById('copy-spec-label');
+      const btn = document.getElementById('copy-spec-btn');
+      if (!ta) return;
+
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+
+      let copied = false;
+      try {
+        copied = document.execCommand('copy');
+      } catch (e) {}
+
+      if (copied && lbl && btn) {
+        const origText = lbl.textContent;
+        lbl.textContent = 'Copied Spec!';
+        btn.className = 'tm-btn-transition inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-md';
+        setTimeout(() => {
+          lbl.textContent = origText;
+          btn.className = 'tm-btn-transition inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cobalt hover:bg-cobalt-hover text-white text-xs font-semibold shadow-md shadow-blue-950/50';
+        }, 2000);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 9. Bootstrap on Window Load
+    // -------------------------------------------------------------------------
+    window.addEventListener('DOMContentLoaded', () => {
+      const shell = document.getElementById('ae-panel-shell');
+      if (shell) {
+        panelResizeObserver.observe(shell);
+      }
+      initCustomCornerDrag();
+      updatePreviewVisuals();
+      syncResponsiveSections();
+
+      const ta = document.getElementById('agent-spec-textarea');
+      if (ta) {
+        ta.value = DEFAULT_AGENT_SPEC;
+        updateSpecCharCount();
+      }
+    });
+  </script>
+</body>
+</html>
