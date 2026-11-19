@@ -1,0 +1,28 @@
+name: CI Test Suite
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test-after-effects-importer:
+    name: Test Importer & ScriptUI (ES3)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Test ScriptUI Panel Layout & ES3 Compliance
+        run: node scripts/test_es3_panel.js
+
+      - name: Test Rig Generation Engine & Mock AE DOM
+        run: node scripts/test_build_rig.js

@@ -20,8 +20,13 @@ echo ==========================================================
 echo.
 
 set "SCRIPT_DIR=%~dp0"
-set "SRC_DLL=%SCRIPT_DIR%obs-telemetry-recorder\build\tracemotion-obs.dll"
-set "SRC_DATA=%SCRIPT_DIR%obs-telemetry-recorder\data"
+if exist "%SCRIPT_DIR%tracemotion-obs.dll" (
+    set "SRC_DLL=%SCRIPT_DIR%tracemotion-obs.dll"
+    set "SRC_DATA=%SCRIPT_DIR%data"
+) else (
+    set "SRC_DLL=%SCRIPT_DIR%obs-telemetry-recorder\build\tracemotion-obs.dll"
+    set "SRC_DATA=%SCRIPT_DIR%obs-telemetry-recorder\data"
+)
 
 if not exist "%SRC_DLL%" (
     echo [ERROR] Could not find built DLL at:

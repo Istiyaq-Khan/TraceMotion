@@ -2,20 +2,22 @@
  * TraceMotion Importer & Rig Generator for Adobe After Effects
  *
  * Ingests screen recordings and synchronized mouse telemetry (.cursor.json)
- * captured via OBS Studio or Recordly. Reconstructs dynamic camera zooms, deadband
- * safe zones, damped harmonic oscillator spring smoothing, authentic system cursor assets
- * (macOS Tahoe, macOS Classic, Windows 11 Fluent, Figma), automatic macOS window framing,
- * rounded corner track mattes, multi-stage soft drop shadows, 2.0x typing speed-up & zoom,
- * and two-tier studio click ripple VFX.
+ * captured via OBS Studio or Recordly. Restores 100% of the original damped
+ * harmonic oscillator spring smoothing, dynamic cursor velocity tilt/rotation,
+ * click bounce, and auto-zoom physics, combined with crash-free AE reference
+ * handling, additive typing auto-zoom + camera follow + 2x speed-up, scroll
+ * auto-zoom + 2x speed-up with guaranteed zoom-out recovery, frame-accurate
+ * time-remap sync, independent On/Off toggles, and a fully responsive ScriptUI
+ * panel with live interactive preview.
  *
- * Compatible with Adobe After Effects CC 2020 through CC 2026+ (Pure ES3 ExtendScript)
+ * Compatible with Adobe After Effects CC 2020 through CC 2026+ (Strict ES3 ExtendScript)
  */
 
 (function (thisObj) {
     "use strict";
 
     // =========================================================================
-    // ExtendScript Polyfills & Helper Utilities (ES3 Compatible)
+    // ExtendScript Polyfills & Helper Utilities (Strict ES3)
     // =========================================================================
     if (!Object.keys) {
         Object.keys = function (obj) {
@@ -38,6 +40,16 @@
             }
         }
         return keys;
+    }
+
+    function safeIsValid(obj) {
+        if (!obj) return false;
+        try {
+            if (typeof isValid === "function") {
+                return isValid(obj);
+            }
+        } catch (e) {}
+        return true;
     }
 
     if (!Array.prototype.indexOf) {
@@ -108,7 +120,7 @@
         return [r, g, b];
     }
 
-    var PREF_SECTION = "TraceMotion_Preferences_v5";
+    var PREF_SECTION = "TraceMotion_Preferences_v7";
     function savePref(key, value) {
         try {
             app.settings.saveSetting(PREF_SECTION, key, String(value));
@@ -122,32 +134,36 @@
         } catch (e) {}
         return defaultValue;
     }
+    function getBoolPref(key, defaultBool) {
+        var raw = getPref(key, defaultBool ? "true" : "false");
+        return String(raw) !== "false";
+    }
 
     var SafeProp = {
         find: function (parent, matchNames, fallbackIndex) {
-            if (!parent) return null;
+            if (!safeIsValid(parent)) return null;
             if (typeof matchNames === "string") matchNames = [matchNames];
             for (var i = 0; i < matchNames.length; i++) {
                 try {
                     var p = parent.property(matchNames[i]);
-                    if (p) return p;
+                    if (safeIsValid(p)) return p;
                 } catch (e) {}
             }
             if (fallbackIndex !== undefined) {
                 try {
                     var pIdx = parent.property(fallbackIndex);
-                    if (pIdx) return pIdx;
+                    if (safeIsValid(pIdx)) return pIdx;
                 } catch (e) {}
             }
             return null;
         },
         findFresh: function (root, pathNames) {
-            if (!root) return null;
+            if (!safeIsValid(root)) return null;
             var curr = root;
             for (var i = 0; i < pathNames.length; i++) {
                 try {
                     curr = curr.property(pathNames[i]);
-                    if (!curr) return null;
+                    if (!safeIsValid(curr)) return null;
                 } catch (e) {
                     return null;
                 }
@@ -155,7 +171,7 @@
             return curr;
         },
         setExpression: function (prop, expr) {
-            if (!prop) return false;
+            if (!safeIsValid(prop)) return false;
             try {
                 prop.expression = expr;
                 return true;
@@ -164,19 +180,19 @@
             }
         },
         setValue: function (prop, val) {
-            if (!prop) return;
+            if (!safeIsValid(prop)) return;
             try { prop.setValue(val); } catch (e) {}
         },
         setValueAtTime: function (prop, time, val) {
-            if (!prop) return;
+            if (!safeIsValid(prop)) return;
             try { prop.setValueAtTime(time, val); } catch (e) {}
         },
         getNumKeys: function (prop) {
-            if (!prop) return 0;
+            if (!safeIsValid(prop)) return 0;
             try { return prop.numKeys || 0; } catch (e) { return 0; }
         },
         setTemporalEase: function (prop, keyIdx, inEase, outEase) {
-            if (!prop) return;
+            if (!safeIsValid(prop)) return;
             var totalK = SafeProp.getNumKeys(prop);
             if (keyIdx < 1 || keyIdx > totalK) return;
             try {
@@ -212,7 +228,6 @@
 
     // =========================================================================
     // Authentic Cursor Asset System & Calibrated Hotspot Geometry
-    // Matched 1:1 to after-effects-importer/assets/cursors/ filenames
     // =========================================================================
     var CURSOR_MANIFEST = {
         tahoe: {
@@ -221,72 +236,16 @@
             folder: "tahoe",
             sizeMultiplier: 1.0,
             cursors: {
-                arrow: {
-                    filePng: "pointer-1__34-24.png",
-                    fileSvg: "pointer-1__34-24.svg",
-                    altPng: "pointer-1__14-6.png",
-                    anchorX: 0.34,
-                    anchorY: 0.24
-                },
-                pointer: {
-                    filePng: "pointinghand-1__39-26.png",
-                    fileSvg: "pointinghand-1__39-26.svg",
-                    altPng: "pointinghand-1__40-10.png",
-                    anchorX: 0.39,
-                    anchorY: 0.26
-                },
-                text: {
-                    filePng: "ibeam-1__50-50.png",
-                    fileSvg: "ibeam-1__50-50.svg",
-                    altPng: "ibeam-1__50-44.png",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                crosshair: {
-                    filePng: "crosshair-1__50-50.png",
-                    fileSvg: "crosshair-1__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "open-hand": {
-                    filePng: "openhand-1__50-50.png",
-                    fileSvg: "openhand-1__50-50.svg",
-                    altPng: "openhand-1__55-57.png",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "closed-hand": {
-                    filePng: "closedhand-1__50-50.png",
-                    fileSvg: "closedhand-1__50-50.svg",
-                    altPng: "closedhand-1__50-46.png",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "resize-ew": {
-                    filePng: "resizeeastwest-1__50-50.png",
-                    fileSvg: "resizeeastwest-1__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "resize-ns": {
-                    filePng: "resizenorthsouth-1__50-50.png",
-                    fileSvg: "resizenorthsouth-1__50-50.svg",
-                    altPng: "resizenorthsouth-1__50-49.png",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "not-allowed": {
-                    filePng: "notallowed-1__23-0.png",
-                    fileSvg: "notallowed-1__23-0.svg",
-                    anchorX: 0.23,
-                    anchorY: 0.00
-                },
-                wait: {
-                    filePng: "busybutclickable-1__23-0.png",
-                    fileSvg: "busybutclickable-1__23-0.svg",
-                    anchorX: 0.23,
-                    anchorY: 0.00
-                }
+                arrow: { filePng: "pointer-1__34-24.png", fileSvg: "pointer-1__34-24.svg", altPng: "pointer-1__14-6.png", anchorX: 0.34, anchorY: 0.24, altAnchorX: 0.14, altAnchorY: 0.06 },
+                pointer: { filePng: "pointinghand-1__39-26.png", fileSvg: "pointinghand-1__39-26.svg", altPng: "pointinghand-1__40-10.png", anchorX: 0.39, anchorY: 0.26, altAnchorX: 0.40, altAnchorY: 0.10 },
+                text: { filePng: "ibeam-1__50-50.png", fileSvg: "ibeam-1__50-50.svg", altPng: "ibeam-1__50-44.png", anchorX: 0.50, anchorY: 0.50, altAnchorX: 0.50, altAnchorY: 0.44 },
+                crosshair: { filePng: "crosshair-1__50-50.png", fileSvg: "crosshair-1__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                "open-hand": { filePng: "openhand-1__50-50.png", fileSvg: "openhand-1__50-50.svg", altPng: "openhand-1__55-57.png", anchorX: 0.50, anchorY: 0.50, altAnchorX: 0.55, altAnchorY: 0.57 },
+                "closed-hand": { filePng: "closedhand-1__50-50.png", fileSvg: "closedhand-1__50-50.svg", altPng: "closedhand-1__50-46.png", anchorX: 0.50, anchorY: 0.50, altAnchorX: 0.50, altAnchorY: 0.46 },
+                "resize-ew": { filePng: "resizeeastwest-1__50-50.png", fileSvg: "resizeeastwest-1__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                "resize-ns": { filePng: "resizenorthsouth-1__50-50.png", fileSvg: "resizenorthsouth-1__50-50.svg", altPng: "resizenorthsouth-1__50-49.png", anchorX: 0.50, anchorY: 0.50, altAnchorX: 0.50, altAnchorY: 0.49 },
+                "not-allowed": { filePng: "notallowed-1__23-0.png", fileSvg: "notallowed-1__23-0.svg", anchorX: 0.23, anchorY: 0.00 },
+                wait: { filePng: "busybutclickable-1__23-0.png", fileSvg: "busybutclickable-1__23-0.svg", anchorX: 0.23, anchorY: 0.00 }
             }
         },
         macos: {
@@ -295,66 +254,16 @@
             folder: "macos",
             sizeMultiplier: 1.714,
             cursors: {
-                arrow: {
-                    filePng: "pointer-1__34-24.png",
-                    fileSvg: "pointer-1__34-24.svg",
-                    anchorX: 0.34,
-                    anchorY: 0.24
-                },
-                pointer: {
-                    filePng: "pointinghand-1__39-26.png",
-                    fileSvg: "pointinghand-1__39-26.svg",
-                    anchorX: 0.39,
-                    anchorY: 0.26
-                },
-                text: {
-                    filePng: "ibeamstroke-1__50-50.png",
-                    fileSvg: "ibeamstroke-1__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                crosshair: {
-                    filePng: "crosshair-1__50-50.png",
-                    fileSvg: "crosshair-1__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "open-hand": {
-                    filePng: "openhand-1__50-50.png",
-                    fileSvg: "openhand-1__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "closed-hand": {
-                    filePng: "closedhand-1__50-50.png",
-                    fileSvg: "closedhand-1__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "resize-ew": {
-                    filePng: "resizeeastwest-1__50-50.png",
-                    fileSvg: "resizeeastwest-1__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "resize-ns": {
-                    filePng: "resizenorthsouth-1__50-50.png",
-                    fileSvg: "resizenorthsouth-1__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "not-allowed": {
-                    filePng: "notallowed-1__23-0.png",
-                    fileSvg: "notallowed-1__23-0.svg",
-                    anchorX: 0.23,
-                    anchorY: 0.00
-                },
-                wait: {
-                    filePng: "busybutclickable-1__23-0.png",
-                    fileSvg: "busybutclickable-1__23-0.svg",
-                    anchorX: 0.23,
-                    anchorY: 0.00
-                }
+                arrow: { filePng: "pointer-1__34-24.png", fileSvg: "pointer-1__34-24.svg", anchorX: 0.34, anchorY: 0.24 },
+                pointer: { filePng: "pointinghand-1__39-26.png", fileSvg: "pointinghand-1__39-26.svg", anchorX: 0.39, anchorY: 0.26 },
+                text: { filePng: "ibeamstroke-1__50-50.png", fileSvg: "ibeamstroke-1__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                crosshair: { filePng: "crosshair-1__50-50.png", fileSvg: "crosshair-1__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                "open-hand": { filePng: "openhand-1__50-50.png", fileSvg: "openhand-1__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                "closed-hand": { filePng: "closedhand-1__50-50.png", fileSvg: "closedhand-1__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                "resize-ew": { filePng: "resizeeastwest-1__50-50.png", fileSvg: "resizeeastwest-1__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                "resize-ns": { filePng: "resizenorthsouth-1__50-50.png", fileSvg: "resizenorthsouth-1__50-50.svg", altPng: "resizenorthsouth-1__50-49.png", anchorX: 0.50, anchorY: 0.50, altAnchorX: 0.50, altAnchorY: 0.49 },
+                "not-allowed": { filePng: "notallowed-1__23-0.png", fileSvg: "notallowed-1__23-0.svg", anchorX: 0.23, anchorY: 0.00 },
+                wait: { filePng: "busybutclickable-1__23-0.png", fileSvg: "busybutclickable-1__23-0.svg", anchorX: 0.23, anchorY: 0.00 }
             }
         },
         windows11: {
@@ -363,67 +272,16 @@
             folder: "windows11",
             sizeMultiplier: 1.6787,
             cursors: {
-                arrow: {
-                    filePng: "arrow__50-50.png",
-                    fileSvg: "arrow__50-50.svg",
-                    altPng: "arrow__31-22.png",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                pointer: {
-                    filePng: "pointer__54-35.png",
-                    fileSvg: "pointer__54-35.svg",
-                    anchorX: 0.54,
-                    anchorY: 0.35
-                },
-                text: {
-                    filePng: "text__50-50.png",
-                    fileSvg: "text__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                crosshair: {
-                    filePng: "cross__50-50.png",
-                    fileSvg: "cross__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "open-hand": {
-                    filePng: "grab__50-50.png",
-                    fileSvg: "grab__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "closed-hand": {
-                    filePng: "grabbing__50-50.png",
-                    fileSvg: "grabbing__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                "resize-ew": {
-                    filePng: "resize-horizontal__51-49.png",
-                    fileSvg: "resize-horizontal__51-49.svg",
-                    anchorX: 0.51,
-                    anchorY: 0.49
-                },
-                "resize-ns": {
-                    filePng: "resize-vertical__48-50.png",
-                    fileSvg: "resize-vertical__48-50.svg",
-                    anchorX: 0.48,
-                    anchorY: 0.50
-                },
-                "not-allowed": {
-                    filePng: "block__50-50.png",
-                    fileSvg: "block__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                },
-                wait: {
-                    filePng: "wait__50-50.png",
-                    fileSvg: "wait__50-50.svg",
-                    anchorX: 0.50,
-                    anchorY: 0.50
-                }
+                arrow: { filePng: "arrow__50-50.png", fileSvg: "arrow__50-50.svg", altPng: "arrow__31-22.png", anchorX: 0.50, anchorY: 0.50, altAnchorX: 0.31, altAnchorY: 0.22 },
+                pointer: { filePng: "pointer__54-35.png", fileSvg: "pointer__54-35.svg", anchorX: 0.54, anchorY: 0.35 },
+                text: { filePng: "text__50-50.png", fileSvg: "text__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                crosshair: { filePng: "cross__50-50.png", fileSvg: "cross__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                "open-hand": { filePng: "grab__50-50.png", fileSvg: "grab__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                "closed-hand": { filePng: "grabbing__50-50.png", fileSvg: "grabbing__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                "resize-ew": { filePng: "resize-horizontal__51-49.png", fileSvg: "resize-horizontal__51-49.svg", anchorX: 0.51, anchorY: 0.49 },
+                "resize-ns": { filePng: "resize-vertical__48-50.png", fileSvg: "resize-vertical__48-50.svg", anchorX: 0.48, anchorY: 0.50 },
+                "not-allowed": { filePng: "block__50-50.png", fileSvg: "block__50-50.svg", anchorX: 0.50, anchorY: 0.50 },
+                wait: { filePng: "wait__50-50.png", fileSvg: "wait__50-50.svg", anchorX: 0.50, anchorY: 0.50 }
             }
         },
         custom: {
@@ -432,18 +290,8 @@
             folder: "custom",
             sizeMultiplier: 1.0,
             cursors: {
-                arrow: {
-                    filePng: "minimal-cursor.png",
-                    fileSvg: "minimal-cursor.svg",
-                    anchorX: 0.1010,
-                    anchorY: 0.0508
-                },
-                pointer: {
-                    filePng: "minimal-cursor.png",
-                    fileSvg: "minimal-cursor.svg",
-                    anchorX: 0.1010,
-                    anchorY: 0.0508
-                }
+                arrow: { filePng: "minimal-cursor.png", fileSvg: "minimal-cursor.svg", anchorX: 0.1010, anchorY: 0.0508 },
+                pointer: { filePng: "minimal-cursor.png", fileSvg: "minimal-cursor.svg", anchorX: 0.1010, anchorY: 0.0508 }
             }
         }
     };
@@ -510,7 +358,6 @@
 
     // =========================================================================
     // Recordly Wallpapers Asset Library (Exact Match to assets/wallpapers/)
-    // Each entry includes rich preview gradient colors for instant ScriptUI rendering
     // =========================================================================
     var RECORDLY_WALLPAPERS = [
         { id: "tahoe-light", filename: "tahoe-light.jpg", label: "Tahoe Light", start: [0.231, 0.510, 0.965], end: [0.545, 0.361, 0.965] },
@@ -555,17 +402,35 @@
         { id: "wallpaper15", filename: "wallpaper15.jpg", label: "Wallpaper 15", start: [0.240, 0.480, 0.820], end: [0.120, 0.180, 0.380] }
     ];
 
+    var BACKGROUND_PRESETS = {
+        "tahoe-dawn": { label: "Tahoe Dawn", start: [0.231, 0.510, 0.965], end: [0.545, 0.361, 0.965], isRadial: false },
+        "dark-studio": { label: "Dark Studio", start: [0.153, 0.153, 0.165], end: [0.035, 0.035, 0.043], isRadial: true },
+        "midnight-deep": { label: "Midnight Deep", start: [0.118, 0.161, 0.231], end: [0.035, 0.051, 0.086], isRadial: true },
+        "sequoia-azure": { label: "Sequoia Azure", start: [0.145, 0.388, 0.922], end: [0.059, 0.090, 0.165], isRadial: false },
+        "solid-charcoal": { label: "Clean Charcoal", start: [0.118, 0.118, 0.125], end: [0.118, 0.118, 0.125], isRadial: false },
+        "none": { label: "Transparent / None", start: [0, 0, 0], end: [0, 0, 0], isRadial: false }
+    };
+
     function getWallpaperMeta(key) {
         for (var i = 0; i < RECORDLY_WALLPAPERS.length; i++) {
             if (RECORDLY_WALLPAPERS[i].filename === key || RECORDLY_WALLPAPERS[i].id === key) {
                 return RECORDLY_WALLPAPERS[i];
             }
         }
+        if (BACKGROUND_PRESETS[key]) {
+            return {
+                id: key,
+                filename: key,
+                label: BACKGROUND_PRESETS[key].label,
+                start: BACKGROUND_PRESETS[key].start,
+                end: BACKGROUND_PRESETS[key].end
+            };
+        }
         return RECORDLY_WALLPAPERS[0];
     }
 
     function getWallpaperAssetFile(filename) {
-        if (!filename || filename === "none" || filename === "dark-studio") return null;
+        if (!filename || filename === "none" || filename === "dark-studio" || BACKGROUND_PRESETS[filename]) return null;
         var searchDirs = [];
         try {
             if (typeof $.fileName !== "undefined" && $.fileName) {
@@ -588,53 +453,8 @@
         return null;
     }
 
-    var BACKGROUND_PRESETS = {
-        "tahoe-dawn": {
-            label: "Tahoe Dawn (Electric Blue / Warm Violet)",
-            start: [0.231, 0.510, 0.965],
-            end: [0.545, 0.361, 0.965],
-            solid: "#1E1B4B",
-            isRadial: false
-        },
-        "dark-studio": {
-            label: "Dark Studio (Charcoal / Deep Black)",
-            start: [0.153, 0.153, 0.165],
-            end: [0.035, 0.035, 0.043],
-            solid: "#0F0F12",
-            isRadial: true
-        },
-        "midnight-deep": {
-            label: "Midnight Deep (Slate Navy / Indigo)",
-            start: [0.118, 0.161, 0.231],
-            end: [0.035, 0.051, 0.086],
-            solid: "#0A0E1C",
-            isRadial: true
-        },
-        "sequoia-azure": {
-            label: "Sequoia Azure (Vibrant Azure Cobalt)",
-            start: [0.145, 0.388, 0.922],
-            end: [0.059, 0.090, 0.165],
-            solid: "#10234E",
-            isRadial: false
-        },
-        "solid-charcoal": {
-            label: "Clean Charcoal Solid",
-            start: [0.118, 0.118, 0.125],
-            end: [0.118, 0.118, 0.125],
-            solid: "#1E1E20",
-            isRadial: false
-        },
-        "none": {
-            label: "Transparent / None",
-            start: [0, 0, 0],
-            end: [0, 0, 0],
-            solid: "#000000",
-            isRadial: false
-        }
-    };
-
     // =========================================================================
-    // Recordly Damped Harmonic Oscillator Spring Physics Solver
+    // Recordly Damped Harmonic Oscillator Spring Physics Solver (From main.jsx)
     // =========================================================================
     function getCursorSpringConfig(smoothingFactor, tuning) {
         var clamped = Math.min(2.0, Math.max(0.0, smoothingFactor));
@@ -786,7 +606,7 @@
     }
 
     // =========================================================================
-    // Ramer-Douglas-Peucker (RDP) Trajectory Simplification
+    // Ramer-Douglas-Peucker (RDP) Trajectory Simplification (From main.jsx)
     // =========================================================================
     function getPerpendicularDistance(point, lineStart, lineEnd) {
         var dx = lineEnd.cx - lineStart.cx;
@@ -808,41 +628,110 @@
 
     function rdpSimplify(points, epsilon) {
         if (points.length <= 2) return points;
-        var maxDist = 0;
+
+        var dmax = 0;
         var index = 0;
         var end = points.length - 1;
 
         for (var i = 1; i < end; i++) {
             if (points[i].isClick) {
-                maxDist = epsilon + 1;
+                dmax = Number.MAX_VALUE;
                 index = i;
                 break;
             }
-            var dist = getPerpendicularDistance(points[i], points[0], points[end]);
-            if (dist > maxDist) {
+            var d = getPerpendicularDistance(points[i], points[0], points[end]);
+            if (d > dmax) {
                 index = i;
-                maxDist = dist;
+                dmax = d;
             }
         }
 
-        if (maxDist > epsilon) {
-            var left = rdpSimplify(points.slice(0, index + 1), epsilon);
-            var right = rdpSimplify(points.slice(index), epsilon);
-            return left.slice(0, left.length - 1).concat(right);
+        if (dmax > epsilon) {
+            var rec1 = rdpSimplify(points.slice(0, index + 1), epsilon);
+            var rec2 = rdpSimplify(points.slice(index), epsilon);
+            return rec1.slice(0, rec1.length - 1).concat(rec2);
         } else {
             return [points[0], points[end]];
         }
     }
 
     // =========================================================================
-    // Recordly Telemetry Interaction & Typing Detection Engine
+    // Telemetry Interaction, Typing & Scroll Detection + Unified 2x Time-Remap
     // =========================================================================
-    function detectTelemetryInteractions(rawSamples, durationSec, enableTypingSpeedup) {
+    function isScrollSample(s) {
+        if (!s) return false;
+        var it = s.interactionType || "";
+        if (it === "scroll" || it === "wheel" || it === "scroll-up" || it === "scroll-down") return true;
+        if (s.isScrolling === true) return true;
+        if (typeof s.scrollDelta === "number" && s.scrollDelta !== 0) return true;
+        if (typeof s.wheelDelta === "number" && s.wheelDelta !== 0) return true;
+        if (typeof s.deltaY === "number" && s.deltaY !== 0) return true;
+        return false;
+    }
+
+    function isKeyTypingSample(s) {
+        if (!s) return false;
+        var it = s.interactionType || "";
+        return (it === "key" || it === "typing" || it === "keydown" || s.isTyping === true);
+    }
+
+    function mergeTimeIntervals(intervals, maxGapMs, minDurMs, totalMs) {
+        if (!intervals || intervals.length === 0) return [];
+        var sorted = intervals.slice(0);
+        sorted.sort(function (a, b) { return a.startMs - b.startMs; });
+
+        var merged = [];
+        var cur = {
+            startMs: Math.max(0, sorted[0].startMs),
+            endMs: Math.min(totalMs, sorted[0].endMs),
+            cx: sorted[0].cx !== undefined ? sorted[0].cx : 0.5,
+            cy: sorted[0].cy !== undefined ? sorted[0].cy : 0.5,
+            points: sorted[0].points ? sorted[0].points.slice(0) : []
+        };
+
+        for (var i = 1; i < sorted.length; i++) {
+            var nxt = sorted[i];
+            var nxtStart = Math.max(0, nxt.startMs);
+            var nxtEnd = Math.min(totalMs, nxt.endMs);
+            if (nxtStart <= cur.endMs + maxGapMs) {
+                cur.endMs = Math.max(cur.endMs, nxtEnd);
+                if (nxt.points && nxt.points.length > 0) {
+                    for (var p = 0; p < nxt.points.length; p++) {
+                        cur.points.push(nxt.points[p]);
+                    }
+                }
+            } else {
+                if ((cur.endMs - cur.startMs) >= minDurMs) merged.push(cur);
+                cur = {
+                    startMs: nxtStart,
+                    endMs: nxtEnd,
+                    cx: nxt.cx !== undefined ? nxt.cx : 0.5,
+                    cy: nxt.cy !== undefined ? nxt.cy : 0.5,
+                    points: nxt.points ? nxt.points.slice(0) : []
+                };
+            }
+        }
+        if ((cur.endMs - cur.startMs) >= minDurMs) merged.push(cur);
+        return merged;
+    }
+
+    function detectTelemetryInteractions(rawSamples, durationSec, speedupConfig) {
+        var enableTypingSpeedup = true;
+        var enableScrollSpeedup = true;
+        if (typeof speedupConfig === "boolean") {
+            enableTypingSpeedup = speedupConfig;
+            enableScrollSpeedup = false;
+        } else if (speedupConfig && typeof speedupConfig === "object") {
+            enableTypingSpeedup = speedupConfig.enableTypingSpeedup !== false;
+            enableScrollSpeedup = speedupConfig.enableScrollSpeedup !== false;
+        }
+
         var totalMs = durationSec * 1000.0;
         var dragIntervals = [];
+        var scrollIntervals = [];
         var typingIntervals = [];
 
-        // 1. Detect drag and text selection intervals
+        // 1. Detect drag & text-selection intervals
         for (var i = 0; i < rawSamples.length; i++) {
             var s = rawSamples[i];
             var it = s.interactionType;
@@ -896,76 +785,145 @@
             }
         }
 
-        // 2. Detect explicit typing/key events if emitted by telemetry
+        // 2. Detect Scroll Intervals (explicit wheel/scroll events)
+        var scRunStart = -1;
+        var scRunEnd = -1;
+        var scCx = 0.5;
+        var scCy = 0.5;
+        var scPoints = [];
+        for (var si = 0; si < rawSamples.length; si++) {
+            var scS = rawSamples[si];
+            if (isScrollSample(scS)) {
+                if (scRunStart < 0) {
+                    scRunStart = scS.timeMs;
+                    scCx = scS.cx;
+                    scCy = scS.cy;
+                    scPoints = [{ timeMs: scS.timeMs, cx: scS.cx, cy: scS.cy }];
+                } else {
+                    if (scPoints.length === 0 || (scS.timeMs - scPoints[scPoints.length - 1].timeMs) >= 200) {
+                        scPoints.push({ timeMs: scS.timeMs, cx: scS.cx, cy: scS.cy });
+                    }
+                }
+                scRunEnd = scS.timeMs;
+            } else if (scRunStart >= 0 && (scS.timeMs - scRunEnd) > 750) {
+                var scFinalEnd = Math.min(totalMs, Math.max(scRunEnd + 180, scRunStart + 350));
+                scrollIntervals.push({
+                    startMs: scRunStart,
+                    endMs: scFinalEnd,
+                    cx: scCx,
+                    cy: scCy,
+                    points: scPoints
+                });
+                scRunStart = -1;
+                scPoints = [];
+            }
+        }
+        if (scRunStart >= 0) {
+            scrollIntervals.push({
+                startMs: scRunStart,
+                endMs: Math.min(totalMs, Math.max(scRunEnd + 180, scRunStart + 350)),
+                cx: scCx,
+                cy: scCy,
+                points: scPoints
+            });
+        }
+        var mergedScroll = mergeTimeIntervals(scrollIntervals, 650, 250, totalMs);
+
+        function isScrollAtTime(tMs) {
+            for (var sd = 0; sd < mergedScroll.length; sd++) {
+                if (tMs >= mergedScroll[sd].startMs && tMs <= mergedScroll[sd].endMs) return true;
+            }
+            return false;
+        }
+
+        // 3. Detect explicit typing/key events with per-sample coordinates for camera follow
         var keyRunStart = -1;
         var keyRunEnd = -1;
         var keyRunCx = 0.5;
         var keyRunCy = 0.5;
+        var keyPoints = [];
         for (var ke = 0; ke < rawSamples.length; ke++) {
             var ks = rawSamples[ke];
-            var isKeySample = (ks.interactionType === "key" || ks.interactionType === "typing" || ks.isTyping === true);
-            if (isKeySample) {
+            if (isKeyTypingSample(ks)) {
+                var kx = (typeof ks.typingX === "number") ? ks.typingX : ks.cx;
+                var ky = (typeof ks.typingY === "number") ? ks.typingY : ks.cy;
                 if (keyRunStart < 0) {
                     keyRunStart = ks.timeMs;
-                    keyRunCx = ks.cx;
-                    keyRunCy = ks.cy;
+                    keyRunCx = kx;
+                    keyRunCy = ky;
+                    keyPoints = [{ timeMs: ks.timeMs, cx: kx, cy: ky }];
+                } else {
+                    if (keyPoints.length === 0 || (ks.timeMs - keyPoints[keyPoints.length - 1].timeMs) >= 220) {
+                        keyPoints.push({ timeMs: ks.timeMs, cx: kx, cy: ky });
+                    }
                 }
                 keyRunEnd = ks.timeMs;
-            } else if (keyRunStart >= 0 && (ks.timeMs - keyRunEnd) > 1200) {
-                if ((keyRunEnd - keyRunStart) >= 600) {
+            } else if (keyRunStart >= 0 && (ks.timeMs - keyRunEnd) > 1100) {
+                if ((keyRunEnd - keyRunStart) >= 500) {
                     typingIntervals.push({
                         startMs: keyRunStart,
                         endMs: keyRunEnd,
                         cx: keyRunCx,
-                        cy: keyRunCy
+                        cy: keyRunCy,
+                        points: keyPoints
                     });
                 }
                 keyRunStart = -1;
+                keyPoints = [];
             }
         }
-        if (keyRunStart >= 0 && (keyRunEnd - keyRunStart) >= 600) {
+        if (keyRunStart >= 0 && (keyRunEnd - keyRunStart) >= 500) {
             typingIntervals.push({
                 startMs: keyRunStart,
                 endMs: keyRunEnd,
                 cx: keyRunCx,
-                cy: keyRunCy
+                cy: keyRunCy,
+                points: keyPoints
             });
         }
 
-        // 3. Detect typing intervals via click into text field + stationary dwell
-        // Supports both direct text-cursor clicks and clicks that transition to text cursor within 500ms
+        // 4. Heuristic typing intervals: click in text field + stationary dwell
+        // Stops immediately on mouse movement, new click, or scroll event so scrolling NEVER mimics typing!
         for (var c = 0; c < rawSamples.length; c++) {
             var clickS = rawSamples[c];
             if (clickS.interactionType === "click" || clickS.interactionType === "double-click") {
                 var isTextClick = (clickS.cursorType === "text");
                 if (!isTextClick) {
-                    // Check if cursor switched to I-beam text cursor immediately before or after click
                     for (var near = Math.max(0, c - 3); near < Math.min(rawSamples.length, c + 8); near++) {
-                        if (Math.abs(rawSamples[near].timeMs - clickS.timeMs) <= 500 && rawSamples[near].cursorType === "text") {
+                        if (Math.abs(rawSamples[near].timeMs - clickS.timeMs) <= 450 && rawSamples[near].cursorType === "text") {
                             isTextClick = true;
                             break;
                         }
                     }
                 }
                 if (isTextClick) {
-                    // Allow typing sessions up to 60 seconds (not capped at 8s)
-                    var windowEnd = Math.min(totalMs, clickS.timeMs + 60000);
+                    var windowEnd = Math.min(totalMs, clickS.timeMs + 30000);
                     var maxDisp = 0;
                     var lastStationaryMs = clickS.timeMs;
+                    var dwellPts = [{ timeMs: clickS.timeMs, cx: clickS.cx, cy: clickS.cy }];
                     for (var w = c + 1; w < rawSamples.length && rawSamples[w].timeMs <= windowEnd; w++) {
                         var sMove = rawSamples[w];
+                        if (isScrollSample(sMove) || isScrollAtTime(sMove.timeMs)) break;
+                        var mType = sMove.interactionType;
+                        if (mType === "click" || mType === "right-click" || mType === "middle-click") {
+                            var cDist = Math.sqrt(Math.pow(sMove.cx - clickS.cx, 2) + Math.pow(sMove.cy - clickS.cy, 2));
+                            if (cDist > 0.03) break;
+                        }
                         var d = Math.sqrt(Math.pow(sMove.cx - clickS.cx, 2) + Math.pow(sMove.cy - clickS.cy, 2));
                         if (d > maxDisp) maxDisp = d;
-                        if (maxDisp > 0.03) break; // User moved mouse away
+                        if (maxDisp > 0.03) break;
                         lastStationaryMs = sMove.timeMs;
+                        if ((sMove.timeMs - dwellPts[dwellPts.length - 1].timeMs) >= 350) {
+                            dwellPts.push({ timeMs: sMove.timeMs, cx: sMove.cx, cy: sMove.cy });
+                        }
                     }
-                    var typingDur = lastStationaryMs - clickS.timeMs;
-                    if (typingDur >= 900) {
+                    if ((lastStationaryMs - clickS.timeMs) >= 900) {
                         typingIntervals.push({
                             startMs: Math.max(0, clickS.timeMs),
                             endMs: Math.min(totalMs, lastStationaryMs),
                             cx: clickS.cx,
-                            cy: clickS.cy
+                            cy: clickS.cy,
+                            points: dwellPts
                         });
                         while (c < rawSamples.length - 1 && rawSamples[c + 1].timeMs <= lastStationaryMs) {
                             c++;
@@ -974,78 +932,58 @@
                 }
             }
         }
+        var mergedTyping = mergeTimeIntervals(typingIntervals, 750, 300, totalMs);
 
-        // Merge overlapping or adjacent typing intervals
-        var mergedTyping = [];
-        if (typingIntervals.length > 0) {
-            typingIntervals.sort(function (a, b) { return a.startMs - b.startMs; });
-            var curTyping = {
-                startMs: Math.max(0, typingIntervals[0].startMs),
-                endMs: Math.min(totalMs, typingIntervals[0].endMs),
-                cx: typingIntervals[0].cx,
-                cy: typingIntervals[0].cy
-            };
-            for (var m = 1; m < typingIntervals.length; m++) {
-                var nextT = typingIntervals[m];
-                if (nextT.startMs <= curTyping.endMs + 800) {
-                    curTyping.endMs = Math.min(totalMs, Math.max(curTyping.endMs, nextT.endMs));
-                } else {
-                    if (curTyping.endMs > curTyping.startMs + 200) {
-                        mergedTyping.push(curTyping);
-                    }
-                    curTyping = {
-                        startMs: Math.max(0, nextT.startMs),
-                        endMs: Math.min(totalMs, nextT.endMs),
-                        cx: nextT.cx,
-                        cy: nextT.cy
-                    };
-                }
-            }
-            if (curTyping.endMs > curTyping.startMs + 200) {
-                mergedTyping.push(curTyping);
+        // 5. Build Unified 2.0x Speed-Up Interval List (Typing 2x + Scroll 2x independently toggled)
+        var rawSpeedup = [];
+        if (enableTypingSpeedup) {
+            for (var ti = 0; ti < mergedTyping.length; ti++) {
+                rawSpeedup.push({ startMs: mergedTyping[ti].startMs, endMs: mergedTyping[ti].endMs });
             }
         }
+        if (enableScrollSpeedup) {
+            for (var sci = 0; sci < mergedScroll.length; sci++) {
+                rawSpeedup.push({ startMs: mergedScroll[sci].startMs, endMs: mergedScroll[sci].endMs });
+            }
+        }
+        var speedupIntervals = mergeTimeIntervals(rawSpeedup, 150, 150, totalMs);
 
-        // 4. Build 2.0x Time-Mapping Function for Typing Speed-Up
         var speedFactor = 2.0;
         var totalSavedSec = 0;
-        if (enableTypingSpeedup && mergedTyping.length > 0) {
-            for (var t = 0; t < mergedTyping.length; t++) {
-                var durSec = (mergedTyping[t].endMs - mergedTyping[t].startMs) / 1000.0;
-                totalSavedSec += durSec * (1.0 - 1.0 / speedFactor);
-            }
+        for (var sp = 0; sp < speedupIntervals.length; sp++) {
+            var segDurSec = (speedupIntervals[sp].endMs - speedupIntervals[sp].startMs) / 1000.0;
+            totalSavedSec += segDurSec * (1.0 - 1.0 / speedFactor);
         }
 
         function timeMapFn(tSec) {
-            if (!enableTypingSpeedup || mergedTyping.length === 0) {
-                return { compSec: Math.max(0, tSec), isTyping: false };
+            var safeSec = Math.max(0, tSec);
+            if (speedupIntervals.length === 0) {
+                return { compSec: safeSec, isSpeedup: false };
             }
-            var tMs = tSec * 1000.0;
+            var tMs = safeSec * 1000.0;
             var savedMs = 0;
-            var inTyping = false;
-            for (var segI = 0; segI < mergedTyping.length; segI++) {
-                var seg = mergedTyping[segI];
+            var inSpeed = false;
+            for (var segI = 0; segI < speedupIntervals.length; segI++) {
+                var seg = speedupIntervals[segI];
                 if (tMs <= seg.startMs) {
                     break;
                 } else if (tMs >= seg.endMs) {
                     savedMs += (seg.endMs - seg.startMs) * (1.0 - 1.0 / speedFactor);
                 } else {
                     savedMs += (tMs - seg.startMs) * (1.0 - 1.0 / speedFactor);
-                    inTyping = true;
+                    inSpeed = true;
                     break;
                 }
             }
             return {
                 compSec: Math.max(0, (tMs - savedMs) / 1000.0),
-                isTyping: inTyping
+                isSpeedup: inSpeed
             };
         }
 
         function isDragAtTime(tMs) {
             for (var d = 0; d < dragIntervals.length; d++) {
-                if (tMs >= dragIntervals[d].startMs && tMs <= dragIntervals[d].endMs) {
-                    return true;
-                }
+                if (tMs >= dragIntervals[d].startMs && tMs <= dragIntervals[d].endMs) return true;
             }
             return false;
         }
@@ -1053,162 +991,421 @@
         return {
             dragIntervals: dragIntervals,
             typingIntervals: mergedTyping,
+            scrollIntervals: mergedScroll,
+            speedupIntervals: speedupIntervals,
             totalSavedSec: totalSavedSec,
             timeMapFn: timeMapFn,
-            isDragAtTime: isDragAtTime
+            isDragAtTime: isDragAtTime,
+            isScrollAtTime: isScrollAtTime
         };
     }
 
     // =========================================================================
-    // Recordly Smart Zoom & Cluster Detection Engine (Full-Span Typing Zoom)
+    // Recordly Smart Zoom State Machine (Interval-Based Priority + main.jsx Base)
+    // - When Typing/Scroll Zoom toggles are OFF: runs 100% of main.jsx base clusters untouched.
+    // - When Typing/Scroll Zoom toggles are ON: active Typing/Scroll windows take strict
+    //   priority (clipping/suppressing overlapping base click zooms so zoom never stacks
+    //   or collides), then cleanly zoom back out and hand control back to main.jsx framing.
     // =========================================================================
-    function buildRecordlyZoomClusters(rawSamples, durationSec, zoomScale, typingIntervals) {
+    function subtractPriorityWindows(baseSegs, priorityWindows, guardMs) {
+        if (!priorityWindows || priorityWindows.length === 0) return baseSegs;
+        var out = [];
+        for (var i = 0; i < baseSegs.length; i++) {
+            var pieces = [baseSegs[i]];
+            for (var p = 0; p < priorityWindows.length; p++) {
+                var pw = priorityWindows[p];
+                var cutStart = pw.startMs - guardMs;
+                var cutEnd = pw.endMs + guardMs;
+                var nextPieces = [];
+                for (var j = 0; j < pieces.length; j++) {
+                    var seg = pieces[j];
+                    if (seg.endMs <= cutStart || seg.startMs >= cutEnd) {
+                        nextPieces.push(seg);
+                    } else {
+                        if (seg.startMs < cutStart && (cutStart - seg.startMs) >= 250) {
+                            nextPieces.push({
+                                startMs: seg.startMs,
+                                endMs: cutStart,
+                                cx: seg.cx,
+                                cy: seg.cy,
+                                kind: seg.kind,
+                                points: seg.points
+                            });
+                        }
+                        if (seg.endMs > cutEnd && (seg.endMs - cutEnd) >= 250) {
+                            nextPieces.push({
+                                startMs: cutEnd,
+                                endMs: seg.endMs,
+                                cx: seg.cx,
+                                cy: seg.cy,
+                                kind: seg.kind,
+                                points: seg.points
+                            });
+                        }
+                    }
+                }
+                pieces = nextPieces;
+            }
+            for (var k = 0; k < pieces.length; k++) {
+                out.push(pieces[k]);
+            }
+        }
+        return out;
+    }
+
+    function buildRecordlyZoomClusters(rawSamples, durationSec, zoomScale, typingIntervals, scrollIntervals, zoomOpts) {
+        var opts = zoomOpts || {};
+        var includeBaseAutoZoom = opts.includeBaseAutoZoom !== false;
+        var enableTypingZoom = opts.enableTypingZoom === true;
+        var enableScrollZoom = opts.enableScrollZoom === true;
+
         var totalMs = durationSec * 1000.0;
+        // Exact main.jsx baseline constants
         var mergeGapMs = 2500;
         var padMs = 500;
         var dwellMinMs = 450;
         var dwellMaxMs = 2600;
         var dwellMoveThresh = 0.02;
 
-        var candidates = [];
-
-        // 1. Explicit Clicks from Telemetry
-        for (var i = 0; i < rawSamples.length; i++) {
-            var s = rawSamples[i];
-            var it = s.interactionType;
-            if (it === "click" || it === "double-click" || it === "right-click" || it === "middle-click") {
-                candidates.push({
-                    startMs: s.timeMs,
-                    endMs: s.timeMs,
-                    timeMs: s.timeMs,
-                    cx: s.cx,
-                    cy: s.cy,
-                    strength: it === "double-click" ? 1500 : 1000,
-                    isExplicit: true
-                });
-            }
-        }
-
-        // 2. Dwell Heuristic Candidates (mouse stationary)
-        var runStart = 0;
-        for (var j = 1; j < rawSamples.length; j++) {
-            var prev = rawSamples[j - 1];
-            var curr = rawSamples[j];
-            var dist = Math.sqrt(Math.pow(curr.cx - prev.cx, 2) + Math.pow(curr.cy - prev.cy, 2));
-            if (dist > dwellMoveThresh) {
-                var rLen = j - runStart;
-                if (rLen >= 2) {
-                    var startS = rawSamples[runStart];
-                    var endS = rawSamples[j - 1];
-                    var runDur = endS.timeMs - startS.timeMs;
-                    if (runDur >= dwellMinMs && runDur <= dwellMaxMs) {
-                        var sumX = 0, sumY = 0;
-                        for (var r = runStart; r < j; r++) {
-                            sumX += rawSamples[r].cx;
-                            sumY += rawSamples[r].cy;
-                        }
-                        candidates.push({
-                            startMs: startS.timeMs,
-                            endMs: endS.timeMs,
-                            timeMs: Math.round((startS.timeMs + endS.timeMs) / 2),
-                            cx: sumX / rLen,
-                            cy: sumY / rLen,
-                            strength: runDur,
-                            isExplicit: false
-                        });
-                    }
-                }
-                runStart = j;
-            }
-        }
-
-        // 3. Typing Intervals as High-Priority Full-Span Focus Candidates
-        // Preserves full [startMs, endMs] so camera stays zoomed on the typing position the entire time
-        if (typingIntervals && typingIntervals.length > 0) {
+        // 1. Build Priority Windows for Enabled Typing / Scroll Auto-Zoom Toggles
+        var typingWindows = [];
+        if (enableTypingZoom && typingIntervals && typingIntervals.length > 0) {
             for (var tp = 0; tp < typingIntervals.length; tp++) {
                 var tItem = typingIntervals[tp];
-                candidates.push({
-                    startMs: tItem.startMs,
-                    endMs: tItem.endMs,
-                    timeMs: tItem.startMs,
-                    cx: tItem.cx,
-                    cy: tItem.cy,
-                    strength: 3000,
-                    isExplicit: true,
-                    isTyping: true
-                });
+                if (tItem.endMs > tItem.startMs + 150) {
+                    typingWindows.push({
+                        startMs: Math.max(0, tItem.startMs),
+                        endMs: Math.min(totalMs, tItem.endMs),
+                        cx: tItem.cx,
+                        cy: tItem.cy,
+                        kind: "typing",
+                        points: (tItem.points && tItem.points.length > 0) ? tItem.points.slice(0) : [{ timeMs: tItem.startMs, cx: tItem.cx, cy: tItem.cy }]
+                    });
+                }
             }
         }
 
-        if (candidates.length === 0) return [];
-
-        candidates.sort(function (a, b) { return a.startMs - b.startMs; });
-
-        // Merge Clusters within mergeGapMs
-        var clusters = [];
-        var curStart = candidates[0].startMs;
-        var curEnd = candidates[0].endMs;
-        var bestStrength = candidates[0].strength;
-        var bestCx = candidates[0].cx;
-        var bestCy = candidates[0].cy;
-        var sumCx = candidates[0].cx;
-        var sumCy = candidates[0].cy;
-        var count = 1;
-
-        for (var k = 1; k < candidates.length; k++) {
-            var c = candidates[k];
-            var gap = c.startMs - curEnd;
-            if (gap <= mergeGapMs) {
-                curEnd = Math.max(curEnd, c.endMs);
-                if (c.strength > bestStrength) {
-                    bestStrength = c.strength;
-                    bestCx = c.cx;
-                    bestCy = c.cy;
+        var rawScrollWindows = [];
+        if (enableScrollZoom && scrollIntervals && scrollIntervals.length > 0) {
+            for (var sc = 0; sc < scrollIntervals.length; sc++) {
+                var scItem = scrollIntervals[sc];
+                if (scItem.endMs > scItem.startMs + 150) {
+                    rawScrollWindows.push({
+                        startMs: Math.max(0, scItem.startMs),
+                        endMs: Math.min(totalMs, scItem.endMs),
+                        cx: scItem.cx,
+                        cy: scItem.cy,
+                        kind: "scroll",
+                        points: (scItem.points && scItem.points.length > 0) ? scItem.points.slice(0) : []
+                    });
                 }
-                sumCx += c.cx;
-                sumCy += c.cy;
-                count++;
-            } else {
-                clusters.push({
+            }
+        }
+        // Typing takes priority over Scroll if both ever overlap
+        var scrollWindows = subtractPriorityWindows(rawScrollWindows, typingWindows, 120);
+
+        var priorityWindows = typingWindows.concat(scrollWindows);
+        priorityWindows.sort(function (a, b) { return a.startMs - b.startMs; });
+
+        function isInsidePriority(tMs, bufferMs) {
+            for (var p = 0; p < priorityWindows.length; p++) {
+                if (tMs >= priorityWindows[p].startMs - bufferMs && tMs <= priorityWindows[p].endMs + bufferMs) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // 2. Build main.jsx Original Click + Dwell Clusters (Untouched outside priority windows)
+        var baseClusters = [];
+        if (includeBaseAutoZoom) {
+            var baseCandidates = [];
+
+            // Explicit Clicks from Telemetry (main.jsx exact)
+            for (var i = 0; i < rawSamples.length; i++) {
+                var s = rawSamples[i];
+                var it = s.interactionType;
+                if (it === "click" || it === "double-click" || it === "right-click" || it === "middle-click") {
+                    if (priorityWindows.length > 0 && isInsidePriority(s.timeMs, 150)) continue;
+                    baseCandidates.push({
+                        timeMs: s.timeMs,
+                        cx: s.cx,
+                        cy: s.cy,
+                        strength: it === "double-click" ? 1500 : 1000
+                    });
+                }
+            }
+
+            // Dwell Heuristic Candidates (main.jsx exact)
+            var runStart = 0;
+            for (var j = 1; j < rawSamples.length; j++) {
+                var prev = rawSamples[j - 1];
+                var curr = rawSamples[j];
+                var dist = Math.sqrt(Math.pow(curr.cx - prev.cx, 2) + Math.pow(curr.cy - prev.cy, 2));
+                if (dist > dwellMoveThresh || (priorityWindows.length > 0 && isScrollSample(curr))) {
+                    var rLen = j - runStart;
+                    if (rLen >= 2) {
+                        var startS = rawSamples[runStart];
+                        var endS = rawSamples[j - 1];
+                        var runDur = endS.timeMs - startS.timeMs;
+                        if (runDur >= dwellMinMs && runDur <= dwellMaxMs) {
+                            var midMs = Math.round((startS.timeMs + endS.timeMs) / 2);
+                            if (priorityWindows.length === 0 || !isInsidePriority(midMs, 150)) {
+                                var sumX = 0, sumY = 0;
+                                for (var r = runStart; r < j; r++) {
+                                    sumX += rawSamples[r].cx;
+                                    sumY += rawSamples[r].cy;
+                                }
+                                baseCandidates.push({
+                                    timeMs: midMs,
+                                    cx: sumX / rLen,
+                                    cy: sumY / rLen,
+                                    strength: runDur
+                                });
+                            }
+                        }
+                    }
+                    runStart = j;
+                }
+            }
+
+            if (baseCandidates.length > 0) {
+                baseCandidates.sort(function (a, b) { return a.timeMs - b.timeMs; });
+
+                var curStart = baseCandidates[0].timeMs;
+                var curEnd = baseCandidates[0].timeMs;
+                var bestStrength = baseCandidates[0].strength;
+                var bestCx = baseCandidates[0].cx;
+                var bestCy = baseCandidates[0].cy;
+                var sumCx = baseCandidates[0].cx;
+                var sumCy = baseCandidates[0].cy;
+                var count = 1;
+
+                for (var k = 1; k < baseCandidates.length; k++) {
+                    var c = baseCandidates[k];
+                    var gap = c.timeMs - curEnd;
+                    if (gap <= mergeGapMs) {
+                        curEnd = Math.max(curEnd, c.timeMs);
+                        if (c.strength > bestStrength) {
+                            bestStrength = c.strength;
+                            bestCx = c.cx;
+                            bestCy = c.cy;
+                        }
+                        sumCx += c.cx;
+                        sumCy += c.cy;
+                        count++;
+                    } else {
+                        baseClusters.push({
+                            startMs: Math.max(0, curStart - padMs),
+                            endMs: Math.min(totalMs, curEnd + padMs),
+                            cx: bestCx !== undefined ? bestCx : (sumCx / count),
+                            cy: bestCy !== undefined ? bestCy : (sumCy / count),
+                            kind: "base",
+                            points: []
+                        });
+                        curStart = c.timeMs;
+                        curEnd = c.timeMs;
+                        bestStrength = c.strength;
+                        bestCx = c.cx;
+                        bestCy = c.cy;
+                        sumCx = c.cx;
+                        sumCy = c.cy;
+                        count = 1;
+                    }
+                }
+                baseClusters.push({
                     startMs: Math.max(0, curStart - padMs),
                     endMs: Math.min(totalMs, curEnd + padMs),
                     cx: bestCx !== undefined ? bestCx : (sumCx / count),
-                    cy: bestCy !== undefined ? bestCy : (sumCy / count)
+                    cy: bestCy !== undefined ? bestCy : (sumCy / count),
+                    kind: "base",
+                    points: []
                 });
-                curStart = c.startMs;
-                curEnd = c.endMs;
-                bestStrength = c.strength;
-                bestCx = c.cx;
-                bestCy = c.cy;
-                sumCx = c.cx;
-                sumCy = c.cy;
-                count = 1;
+
+                // Carve out any base cluster overlap with active Typing/Scroll priority windows
+                if (priorityWindows.length > 0) {
+                    baseClusters = subtractPriorityWindows(baseClusters, priorityWindows, 150);
+                }
             }
         }
 
-        clusters.push({
-            startMs: Math.max(0, curStart - padMs),
-            endMs: Math.min(totalMs, curEnd + padMs),
-            cx: bestCx !== undefined ? bestCx : (sumCx / count),
-            cy: bestCy !== undefined ? bestCy : (sumCy / count)
-        });
+        // 3. Combine Strictly Disjoint Base Clusters + Priority Windows and Clamp to Viewport Bounds
+        var allClusters = baseClusters.concat(priorityWindows);
+        if (allClusters.length === 0) return [];
+        allClusters.sort(function (a, b) { return a.startMs - b.startMs; });
 
-        // Clamp focus to Recordly viewport safety bounds
         var marginX = 1.0 / (2.0 * zoomScale);
         var marginY = 1.0 / (2.0 * zoomScale);
-        for (var cl = 0; cl < clusters.length; cl++) {
-            var clItem = clusters[cl];
-            clItem.cx = Math.max(marginX, Math.min(1.0 - marginX, clItem.cx));
-            clItem.cy = Math.max(marginY, Math.min(1.0 - marginY, clItem.cy));
-            clItem.startSec = clItem.startMs / 1000.0;
-            clItem.endSec = clItem.endMs / 1000.0;
-        }
+        var result = [];
+        for (var cl = 0; cl < allClusters.length; cl++) {
+            var clItem = allClusters[cl];
+            var sMs = Math.max(0, clItem.startMs);
+            var eMs = Math.min(totalMs, clItem.endMs);
+            if (eMs <= sMs + 100) continue;
 
-        return clusters;
+            var clampedCx = Math.max(marginX, Math.min(1.0 - marginX, clItem.cx));
+            var clampedCy = Math.max(marginY, Math.min(1.0 - marginY, clItem.cy));
+
+            var clampedPts = [];
+            if (clItem.points && clItem.points.length > 0) {
+                for (var pi = 0; pi < clItem.points.length; pi++) {
+                    clampedPts.push({
+                        timeMs: clItem.points[pi].timeMs,
+                        cx: Math.max(marginX, Math.min(1.0 - marginX, clItem.points[pi].cx)),
+                        cy: Math.max(marginY, Math.min(1.0 - marginY, clItem.points[pi].cy))
+                    });
+                }
+            }
+
+            result.push({
+                startMs: sMs,
+                endMs: eMs,
+                startSec: sMs / 1000.0,
+                endSec: eMs / 1000.0,
+                cx: clampedCx,
+                cy: clampedCy,
+                kind: clItem.kind,
+                points: clampedPts
+            });
+        }
+        return result;
     }
 
     // =========================================================================
-    // Helper: Create Procedural Vector Cursor Fallback (if PNGs missing)
+    // Guaranteed Non-Stuck Zoom Keyframe Emitter (Comp-Time Priority State Machine)
+    // =========================================================================
+    function applyZoomSegmentsToController(controller, clusters, activeTimeMapFn, compDuration, footageW, footageH, targetZoomScale) {
+        var zProp = controller.effect("Zoom Scale")("Slider");
+        var pProp = controller.effect("Camera Focus")("Point");
+        var centerPt = [footageW / 2, footageH / 2];
+
+        pProp.setValueAtTime(0, centerPt);
+        zProp.setValueAtTime(0, 100);
+
+        if (!clusters || clusters.length === 0 || targetZoomScale <= 1.01) {
+            return;
+        }
+
+        // Convert to comp-time and guarantee strict non-overlapping separation
+        // Priority ("typing"/"scroll") windows NEVER get merged with or overridden by "base" segments!
+        var compSegs = [];
+        var minGapSec = 0.08;
+        for (var i = 0; i < clusters.length; i++) {
+            var cl = clusters[i];
+            var tStart = Math.max(0.0, activeTimeMapFn(cl.startSec).compSec);
+            var tEnd = Math.min(compDuration, activeTimeMapFn(cl.endSec).compSec);
+            if (tEnd - tStart < 0.20) continue;
+
+            if (compSegs.length > 0) {
+                var prev = compSegs[compSegs.length - 1];
+                if (tStart < prev.tEnd + minGapSec) {
+                    var prevIsPrio = (prev.kind === "typing" || prev.kind === "scroll");
+                    var curIsPrio = (cl.kind === "typing" || cl.kind === "scroll");
+                    if (curIsPrio && !prevIsPrio) {
+                        // Priority window trims preceding base segment cleanly
+                        prev.tEnd = tStart - minGapSec;
+                        if (prev.tEnd - prev.tStart < 0.20) {
+                            compSegs.pop();
+                        }
+                    } else if (prevIsPrio && !curIsPrio) {
+                        // Preceding priority window delays following base segment cleanly
+                        tStart = prev.tEnd + minGapSec;
+                        if (tEnd - tStart < 0.20) continue;
+                    } else if (!prevIsPrio && !curIsPrio) {
+                        // Two adjacent base segments merge cleanly
+                        prev.tEnd = Math.max(prev.tEnd, tEnd);
+                        continue;
+                    } else {
+                        // Two adjacent priority windows: trim start of second cleanly
+                        tStart = prev.tEnd + minGapSec;
+                        if (tEnd - tStart < 0.20) continue;
+                    }
+                }
+            }
+            compSegs.push({
+                tStart: tStart,
+                tEnd: tEnd,
+                cx: cl.cx,
+                cy: cl.cy,
+                kind: cl.kind,
+                points: cl.points ? cl.points.slice(0) : []
+            });
+        }
+
+        var easeInOut = new KeyframeEase(0, 84.0);
+
+        for (var s = 0; s < compSegs.length; s++) {
+            var seg = compSegs[s];
+            var tStart = seg.tStart;
+            var tEnd = seg.tEnd;
+            var span = tEnd - tStart;
+            if (span < 0.20) continue;
+
+            // main.jsx uses 0.95s smooth transition for base auto-zoom; crisp 0.65s for typing/scroll priority windows
+            var baseTrans = (seg.kind === "base") ? 0.95 : 0.65;
+            var transIn = Math.min(baseTrans, span * 0.35);
+            var transOut = Math.min(baseTrans * 0.85, span * 0.35);
+            var tInEnd = tStart + transIn;
+            var tOutStart = tEnd - transOut;
+            if (tOutStart <= tInEnd + 0.02) {
+                var mid = (tStart + tEnd) * 0.5;
+                tInEnd = mid - 0.01;
+                tOutStart = mid + 0.01;
+            }
+
+            var startFocus = [seg.cx * footageW, seg.cy * footageH];
+            var endFocus = startFocus;
+
+            // Zoom In (100% -> targetZoom, never stacked or multiplied!)
+            zProp.setValueAtTime(tStart, 100);
+            pProp.setValueAtTime(tStart, startFocus);
+
+            zProp.setValueAtTime(tInEnd, targetZoomScale * 100);
+            pProp.setValueAtTime(tInEnd, startFocus);
+
+            // Typing Camera Pan & Follow inside the zoomed hold window
+            if (seg.kind === "typing" && seg.points && seg.points.length > 1) {
+                var lastPtTime = tInEnd;
+                for (var ptI = 0; ptI < seg.points.length; ptI++) {
+                    var ptCompSec = activeTimeMapFn(seg.points[ptI].timeMs / 1000.0).compSec;
+                    if (ptCompSec > lastPtTime + 0.12 && ptCompSec < tOutStart - 0.08) {
+                        var followPt = [seg.points[ptI].cx * footageW, seg.points[ptI].cy * footageH];
+                        pProp.setValueAtTime(ptCompSec, followPt);
+                        endFocus = followPt;
+                        lastPtTime = ptCompSec;
+                    }
+                }
+            }
+
+            // Guaranteed Zoom-Out Recovery (targetZoom -> 100%)
+            zProp.setValueAtTime(tOutStart, targetZoomScale * 100);
+            pProp.setValueAtTime(tOutStart, endFocus);
+
+            zProp.setValueAtTime(tEnd, 100);
+            pProp.setValueAtTime(tEnd, endFocus);
+        }
+
+        // Guaranteed final recovery anchor at comp end
+        if (compSegs.length > 0 && compSegs[compSegs.length - 1].tEnd < compDuration - 0.05) {
+            zProp.setValueAtTime(compDuration, 100);
+            pProp.setValueAtTime(compDuration, centerPt);
+        }
+
+        for (var zk = 1; zk <= zProp.numKeys; zk++) {
+            SafeProp.setTemporalEase(zProp, zk, easeInOut, easeInOut);
+        }
+        for (var pk = 1; pk <= pProp.numKeys; pk++) {
+            SafeProp.setTemporalEase(pProp, pk, easeInOut, easeInOut);
+            try {
+                pProp.setSpatialContinuousAtKey(pk, false);
+                pProp.setSpatialAutoBezierAtKey(pk, false);
+                pProp.setInterpolationTypeAtKey(pk, KeyframeInterpolationType.LINEAR);
+            } catch (e) {}
+        }
+    }
+
+    // =========================================================================
+    // Helper: Procedural Vector Cursor Fallback (if PNGs missing on disk)
     // =========================================================================
     function createProceduralCursorLayer(comp, cursorMaster, baseCursorHeight, enableMotionBlur) {
         var shapeLayer = comp.layers.addShape();
@@ -1219,12 +1416,10 @@
         shapeLayer.transform.position.setValue([0, 0]);
 
         var scale = baseCursorHeight / 24.0;
-        var root = shapeLayer.property("ADBE Root Vectors Group");
-        var grp = root.addProperty("ADBE Vector Group");
+        var grp = shapeLayer.property("ADBE Root Vectors Group").addProperty("ADBE Vector Group");
         grp.name = "Pointer Arrow";
-        var vecs = grp.property("ADBE Vectors Group");
 
-        var pathGrp = vecs.addProperty("ADBE Vector Shape - Group");
+        var pathGrp = SafeProp.findFresh(shapeLayer, ["ADBE Root Vectors Group", "Pointer Arrow", "ADBE Vectors Group"]).addProperty("ADBE Vector Shape - Group");
         var arrowShape = new Shape();
         arrowShape.vertices = [
             [0, 0],
@@ -1238,10 +1433,10 @@
         arrowShape.closed = true;
         pathGrp.property("ADBE Vector Shape").setValue(arrowShape);
 
-        var fill = vecs.addProperty("ADBE Vector Graphic - Fill");
+        var fill = SafeProp.findFresh(shapeLayer, ["ADBE Root Vectors Group", "Pointer Arrow", "ADBE Vectors Group"]).addProperty("ADBE Vector Graphic - Fill");
         fill.property("ADBE Vector Fill Color").setValue([1.0, 1.0, 1.0, 1.0]);
 
-        var stroke = vecs.addProperty("ADBE Vector Graphic - Stroke");
+        var stroke = SafeProp.findFresh(shapeLayer, ["ADBE Root Vectors Group", "Pointer Arrow", "ADBE Vectors Group"]).addProperty("ADBE Vector Graphic - Stroke");
         stroke.property("ADBE Vector Stroke Color").setValue([0.07, 0.08, 0.10, 1.0]);
         stroke.property("ADBE Vector Stroke Width").setValue(Math.max(1.2, 1.6 * scale));
 
@@ -1249,26 +1444,21 @@
     }
 
     // =========================================================================
-    // Helper: Update Active Rig Sliders In-Place Without Rebuilding
+    // Helper: Update Active Rig Sliders In-Place
     // =========================================================================
     function updateActiveTraceMotionRig(comp, options) {
-        if (!comp) return false;
+        if (!safeIsValid(comp)) return false;
         var controller = comp.layer("TraceMotion_Camera_Controller");
-        if (!controller) return false;
+        if (!safeIsValid(controller)) return false;
 
         try {
             app.beginUndoGroup("Update TraceMotion Rig");
-            if (options.canvasMargin !== undefined) {
-                SafeProp.setValue(controller.effect("Canvas Margin")("Slider"), options.canvasMargin);
-            }
-            if (options.cornerRadius !== undefined) {
-                SafeProp.setValue(controller.effect("Corner Radius")("Slider"), options.cornerRadius);
-            }
-            if (options.shadowIntensity !== undefined) {
-                SafeProp.setValue(controller.effect("Shadow Intensity")("Slider"), options.shadowIntensity);
-            }
-            if (options.swayAmount !== undefined) {
-                SafeProp.setValue(controller.effect("Cursor Sway")("Slider"), options.swayAmount);
+            if (options.canvasMargin !== undefined) SafeProp.setValue(controller.effect("Canvas Margin")("Slider"), options.canvasMargin);
+            if (options.cornerRadius !== undefined) SafeProp.setValue(controller.effect("Corner Radius")("Slider"), options.cornerRadius);
+            if (options.shadowIntensity !== undefined) SafeProp.setValue(controller.effect("Shadow Intensity")("Slider"), options.shadowIntensity);
+            if (options.swayAmount !== undefined) SafeProp.setValue(controller.effect("Cursor Sway")("Slider"), options.swayAmount);
+            if (options.syncOffsetMs !== undefined) {
+                try { SafeProp.setValue(controller.effect("Cursor Sync Offset (ms)")("Slider"), options.syncOffsetMs); } catch (eS) {}
             }
             app.endUndoGroup();
             return true;
@@ -1279,17 +1469,19 @@
     }
 
     // =========================================================================
-    // Main Rig Generation Core (Precision Camera Rig & Multi-State Cursor Stack)
+    // Main Rig Generation Core (Restored main.jsx Physics + Crash-Free AE API)
     // =========================================================================
     function buildTraceMotionRig(videoFile, telemetryFile, options) {
         var proj = ensureProject();
         var undoStarted = false;
+        var currentStep = "Initializing";
 
         try {
             app.beginUndoGroup("Build TraceMotion Rig");
             undoStarted = true;
 
-            // 1. Read and parse JSON telemetry
+            // 1. Read & Parse Telemetry JSON
+            currentStep = "Reading telemetry JSON";
             if (!telemetryFile || !telemetryFile.exists) {
                 alert("Telemetry JSON file does not exist: " + (telemetryFile ? telemetryFile.fsName : "null"), "TraceMotion Error");
                 return null;
@@ -1306,13 +1498,13 @@
             }
 
             // 2. Import Video Footage
+            currentStep = "Importing video footage";
             if (!videoFile || !videoFile.exists) {
                 alert("Video footage file does not exist: " + (videoFile ? videoFile.fsName : "null"), "TraceMotion Error");
                 return null;
             }
-            var importOpts = new ImportOptions(videoFile);
-            var footageItem = proj.importFile(importOpts);
-            if (!footageItem) {
+            var footageItem = proj.importFile(new ImportOptions(videoFile));
+            if (!safeIsValid(footageItem)) {
                 alert("Failed to import video footage into project.", "Import Error");
                 return null;
             }
@@ -1323,50 +1515,56 @@
             var fps = footageItem.frameRate || 60;
             var frameDurSec = 1.0 / fps;
 
-            // Apply optional user sync offset (ms) to align OBS telemetry with first video frame
-            // Positive offset delays cursor (fixes cursor moving before video); negative advances cursor
             var syncOffsetMs = parseFloat(options.syncOffsetMs) || 0;
             var rawSamples = [];
             for (var rs = 0; rs < rawSamplesOrig.length; rs++) {
                 var origS = rawSamplesOrig[rs];
                 rawSamples.push({
-                    timeMs: Math.max(0, origS.timeMs + syncOffsetMs),
+                    timeMs: Math.max(0, origS.timeMs),
                     cx: origS.cx,
                     cy: origS.cy,
                     cursorType: origS.cursorType || "arrow",
                     interactionType: origS.interactionType || "",
-                    isTyping: origS.isTyping === true
+                    isTyping: origS.isTyping === true,
+                    isScrolling: origS.isScrolling === true,
+                    scrollDelta: origS.scrollDelta,
+                    wheelDelta: origS.wheelDelta,
+                    deltaY: origS.deltaY,
+                    typingX: origS.typingX,
+                    typingY: origS.typingY
                 });
             }
 
-            // Analyze telemetry for drags, text selection, and typing speedup
+            // Independent 4-toggle flags
             var enableTypingSpeedup = options.enableTypingSpeedup !== false;
-            var telemetryAnalysis = detectTelemetryInteractions(rawSamples, duration, enableTypingSpeedup);
+            var enableTypingZoom = options.enableTypingZoom !== false;
+            var enableScrollSpeedup = options.enableScrollSpeedup !== false;
+            var enableScrollZoom = options.enableScrollZoom !== false;
+
+            // Analyze drags, typing, scroll, and unified 2.0x time mapping
+            currentStep = "Analyzing telemetry interactions";
+            var telemetryAnalysis = detectTelemetryInteractions(rawSamples, duration, {
+                enableTypingSpeedup: enableTypingSpeedup,
+                enableScrollSpeedup: enableScrollSpeedup
+            });
             var plannedCompDuration = Math.max(0.2, duration - telemetryAnalysis.totalSavedSec);
 
-            // 3. Canvas Sizing with Breathing Room Margin
+            // 3. Create Composition
+            currentStep = "Creating composition";
             var marginPct = Math.max(0, Math.min(30, options.canvasMargin !== undefined ? options.canvasMargin : 12));
             var marginScaleFactor = 1.0 + (marginPct / 100.0) * 0.5;
             var compW = Math.round(footageW * marginScaleFactor);
             var compH = Math.round(footageH * marginScaleFactor);
-
             if (compW % 2 !== 0) compW++;
             if (compH % 2 !== 0) compH++;
 
-            // 4. Create Composition
             var baseName = footageItem.name.replace(/\.[^\.]+$/, "");
-            var comp = proj.items.addComp(
-                baseName + "_TraceMotion",
-                compW,
-                compH,
-                1.0,
-                plannedCompDuration,
-                fps
-            );
+            var comp = proj.items.addComp(baseName + "_TraceMotion", compW, compH, 1.0, plannedCompDuration, fps);
             try { comp.openInViewer(); } catch (viewerErr) {}
             comp.motionBlur = options.enableMotionBlur !== false;
 
-            // 5. Add Background Layer (Wallpaper or Gradient)
+            // 4. Add Background Layer
+            currentStep = "Creating background layer";
             var bgLayer = null;
             var wpKey = options.wallpaper || options.backgroundPreset || "tahoe-light.jpg";
 
@@ -1380,7 +1578,6 @@
                         }
                     }
                 }
-
                 if (wpFile && wpFile.exists) {
                     try {
                         var wpFootage = proj.importFile(new ImportOptions(wpFile));
@@ -1391,7 +1588,6 @@
                         bgLayer.transform.position.setValue([compW / 2, compH / 2]);
                     } catch (eWp) {}
                 }
-
                 if (!bgLayer) {
                     var wpMeta = getWallpaperMeta(wpKey);
                     var bgData = BACKGROUND_PRESETS[wpKey] || {
@@ -1400,16 +1596,13 @@
                         isRadial: (wpKey === "dark-studio" || wpKey === "midnight-8.jpg")
                     };
                     bgLayer = comp.layers.addSolid(bgData.start, "TraceMotion_Background", compW, compH, 1.0, plannedCompDuration);
-                    var bgFx = bgLayer.property("ADBE Effect Parade");
-                    var ramp = bgFx.addProperty("ADBE Ramp");
+                    var ramp = bgLayer.property("ADBE Effect Parade").addProperty("ADBE Ramp");
                     ramp.name = "Background Gradient";
-
                     var rStartPt = SafeProp.find(ramp, ["ADBE Ramp-0001", "Start of Ramp"], 1);
                     var rStartCol = SafeProp.find(ramp, ["ADBE Ramp-0002", "Start Color"], 2);
                     var rEndPt = SafeProp.find(ramp, ["ADBE Ramp-0003", "End of Ramp"], 3);
                     var rEndCol = SafeProp.find(ramp, ["ADBE Ramp-0004", "End Color"], 4);
                     var rShape = SafeProp.find(ramp, ["ADBE Ramp-0005", "Ramp Shape"], 5);
-
                     if (bgData.isRadial) {
                         SafeProp.setValue(rStartPt, [compW * 0.5, compH * 0.45]);
                         SafeProp.setValue(rEndPt, [compW * 0.9, compH * 0.9]);
@@ -1424,34 +1617,36 @@
                 }
             }
 
-            // 6. Create Master Camera Rig Null
+            // 5. Create Master Camera Rig Null
+            currentStep = "Creating camera rig";
             var cameraRig = comp.layers.addNull();
             cameraRig.name = "TraceMotion_Camera_Rig";
             cameraRig.guideLayer = true;
             cameraRig.transform.anchorPoint.setValue([0, 0]);
             cameraRig.transform.position.setValue([0, 0]);
 
-            // 7. Create Master Camera Controller Null (Exposes User Tuning Sliders)
+            // 6. Create Master Camera Controller Null (Fresh lookups on every addProperty)
+            currentStep = "Creating camera controller";
             var controller = comp.layers.addNull();
             controller.name = "TraceMotion_Camera_Controller";
             controller.guideLayer = true;
 
-            var fxParade = controller.property("ADBE Effect Parade");
-            fxParade.addProperty("ADBE Slider Control").name = "Zoom Scale";
-            fxParade.addProperty("ADBE Slider Control").name = "Canvas Margin";
-            fxParade.addProperty("ADBE Slider Control").name = "Corner Radius";
-            fxParade.addProperty("ADBE Slider Control").name = "Shadow Intensity";
-            fxParade.addProperty("ADBE Slider Control").name = "Cursor Sway";
-            fxParade.addProperty("ADBE Point Control").name = "Camera Focus";
+            controller.property("ADBE Effect Parade").addProperty("ADBE Slider Control").name = "Zoom Scale";
+            controller.property("ADBE Effect Parade").addProperty("ADBE Slider Control").name = "Canvas Margin";
+            controller.property("ADBE Effect Parade").addProperty("ADBE Slider Control").name = "Corner Radius";
+            controller.property("ADBE Effect Parade").addProperty("ADBE Slider Control").name = "Shadow Intensity";
+            controller.property("ADBE Effect Parade").addProperty("ADBE Slider Control").name = "Cursor Sway";
+            controller.property("ADBE Effect Parade").addProperty("ADBE Slider Control").name = "Cursor Sync Offset (ms)";
+            controller.property("ADBE Effect Parade").addProperty("ADBE Point Control").name = "Camera Focus";
 
             controller.effect("Zoom Scale")("Slider").setValue(100);
             controller.effect("Canvas Margin")("Slider").setValue(marginPct);
             controller.effect("Corner Radius")("Slider").setValue(options.cornerRadius !== undefined ? options.cornerRadius : 20);
             controller.effect("Shadow Intensity")("Slider").setValue(options.shadowIntensity !== undefined ? options.shadowIntensity : 65);
             controller.effect("Cursor Sway")("Slider").setValue(options.swayAmount !== undefined ? options.swayAmount : 0.4);
+            controller.effect("Cursor Sync Offset (ms)")("Slider").setValue(syncOffsetMs);
             controller.effect("Camera Focus")("Point").setValue([footageW / 2, footageH / 2]);
 
-            // Connect Camera Rig Null transforms to Camera Controller
             var maxZoomFactor = Math.max(1.0, (options.zoomDepthScale || 1.8));
             var maxZoomDeltaVal = Math.max(1.0, (maxZoomFactor - 1.0) * 100.0);
 
@@ -1479,7 +1674,8 @@
                 "var targetFocus = [centerPt[0] + (focus[0] - centerPt[0]) * progress, centerPt[1] + (focus[1] - centerPt[1]) * progress];\n" +
                 "[stageCenterX - targetFocus[0] * curScale, stageCenterY - targetFocus[1] * curScale];";
 
-            // 8. Create Window Drop Shadow Layer (Underneath Video, Never Clipped by Track Matte)
+            // 7. Create Window Drop Shadow Layer
+            currentStep = "Creating window shadow layer";
             var shadowLayer = comp.layers.addShape();
             shadowLayer.name = "TraceMotion_Window_Shadow";
             shadowLayer.parent = cameraRig;
@@ -1487,101 +1683,82 @@
             shadowLayer.transform.position.setValue([0, 0]);
             shadowLayer.transform.scale.setValue([100, 100]);
 
-            var shRoot = shadowLayer.property("ADBE Root Vectors Group");
-            var shGrp = shRoot.addProperty("ADBE Vector Group");
+            var shGrp = shadowLayer.property("ADBE Root Vectors Group").addProperty("ADBE Vector Group");
             shGrp.name = "Shadow Bounds";
-            var shVecs = shGrp.property("ADBE Vectors Group");
 
-            var shRect = shVecs.addProperty("ADBE Vector Shape - Rect");
+            var shRect = SafeProp.findFresh(shadowLayer, ["ADBE Root Vectors Group", "Shadow Bounds", "ADBE Vectors Group"]).addProperty("ADBE Vector Shape - Rect");
             shRect.property("ADBE Vector Rect Size").setValue([footageW, footageH]);
             shRect.property("ADBE Vector Rect Position").setValue([footageW / 2, footageH / 2]);
             shRect.property("ADBE Vector Rect Roundness").expression =
                 "thisComp.layer('" + controller.name + "').effect('Corner Radius')('Slider');";
 
-            var shFill = shVecs.addProperty("ADBE Vector Graphic - Fill");
+            var shFill = SafeProp.findFresh(shadowLayer, ["ADBE Root Vectors Group", "Shadow Bounds", "ADBE Vectors Group"]).addProperty("ADBE Vector Graphic - Fill");
             shFill.property("ADBE Vector Fill Color").setValue([1.0, 1.0, 1.0, 1.0]);
 
-            // Multi-Stage Soft Drop Shadows on shadowLayer
-            var shadowFx = shadowLayer.property("ADBE Effect Parade");
-
-            var sh1 = shadowFx.addProperty("ADBE Drop Shadow");
+            var sh1 = shadowLayer.property("ADBE Effect Parade").addProperty("ADBE Drop Shadow");
             sh1.name = "Window Drop Shadow (Ambient)";
             sh1.property("Distance").setValue(16);
             sh1.property("Softness").setValue(48);
             sh1.property("Direction").setValue(180);
-            sh1.property("Opacity").expression =
-                "thisComp.layer('" + controller.name + "').effect('Shadow Intensity')('Slider') * 0.70;";
+            sh1.property("Opacity").expression = "thisComp.layer('" + controller.name + "').effect('Shadow Intensity')('Slider') * 0.70;";
 
-            var sh2 = shadowFx.addProperty("ADBE Drop Shadow");
+            var sh2 = shadowLayer.property("ADBE Effect Parade").addProperty("ADBE Drop Shadow");
             sh2.name = "Window Drop Shadow (Body)";
             sh2.property("Distance").setValue(6);
             sh2.property("Softness").setValue(16);
             sh2.property("Direction").setValue(180);
-            sh2.property("Opacity").expression =
-                "thisComp.layer('" + controller.name + "').effect('Shadow Intensity')('Slider') * 0.40;";
+            sh2.property("Opacity").expression = "thisComp.layer('" + controller.name + "').effect('Shadow Intensity')('Slider') * 0.40;";
 
-            var sh3 = shadowFx.addProperty("ADBE Drop Shadow");
+            var sh3 = shadowLayer.property("ADBE Effect Parade").addProperty("ADBE Drop Shadow");
             sh3.name = "Window Drop Shadow (Contact)";
             sh3.property("Distance").setValue(2);
             sh3.property("Softness").setValue(6);
             sh3.property("Direction").setValue(180);
-            sh3.property("Opacity").expression =
-                "thisComp.layer('" + controller.name + "').effect('Shadow Intensity')('Slider') * 0.25;";
+            sh3.property("Opacity").expression = "thisComp.layer('" + controller.name + "').effect('Shadow Intensity')('Slider') * 0.25;";
 
-            // 9. Add Clean Screen Capture Video Footage Layer
+            // 8. Add Clean Screen Capture Video Layer & Apply Unified 2.0x Time Remapping
+            currentStep = "Adding video footage & time remapping";
             var videoLayer = comp.layers.add(footageItem);
             videoLayer.name = "Clean_Screen_Capture";
             videoLayer.parent = cameraRig;
+            videoLayer.startTime = 0;
             videoLayer.transform.anchorPoint.setValue([0, 0]);
             videoLayer.transform.position.setValue([0, 0]);
             videoLayer.transform.scale.setValue([100, 100]);
 
-            // Apply 2.0x Time Remapping during typing intervals BEFORE keyframing cursor/camera
-            // CRITICAL FIX: Never delete the last keyframe on ADBE Time Remapping (AE throws!)
-            // Keep Key 1 at t=0, remove only Key 2 at t=duration, then set exact remap keys.
-            // If time remap cannot be applied, fall back to identity timeMapFn so video & cursor NEVER desync!
             var timeRemapApplied = false;
-            var activeTimeMapFn = function (tSec) { return { compSec: Math.max(0, tSec), isTyping: false }; };
+            var activeTimeMapFn = function (tSec) { return { compSec: Math.max(0, tSec), isSpeedup: false }; };
             var compDuration = duration;
 
-            if (enableTypingSpeedup && telemetryAnalysis.typingIntervals.length > 0 && telemetryAnalysis.totalSavedSec > 0.05) {
+            if (telemetryAnalysis.speedupIntervals.length > 0 && telemetryAnalysis.totalSavedSec > 0.05) {
                 try {
                     videoLayer.timeRemapEnabled = true;
                     var trProp = videoLayer.property("ADBE Time Remapping");
-                    // AE creates 2 keys by default: Key 1 at 0, Key 2 at duration.
-                    // Remove trailing keys down to 1 (never 0!)
+                    // Safe AE fix: never delete Key 1 (last remaining keyframe throws)
                     while (trProp.numKeys > 1) {
                         trProp.removeKey(trProp.numKeys);
                     }
                     trProp.setValueAtTime(0, 0);
 
-                    for (var ty = 0; ty < telemetryAnalysis.typingIntervals.length; ty++) {
-                        var tSeg = telemetryAnalysis.typingIntervals[ty];
+                    for (var ty = 0; ty < telemetryAnalysis.speedupIntervals.length; ty++) {
+                        var tSeg = telemetryAnalysis.speedupIntervals[ty];
                         var rawStartSec = Math.max(0, Math.min(duration, tSeg.startMs / 1000.0));
                         var rawEndSec = Math.max(rawStartSec, Math.min(duration, tSeg.endMs / 1000.0));
                         var mappedStart = telemetryAnalysis.timeMapFn(rawStartSec).compSec;
                         var mappedEnd = telemetryAnalysis.timeMapFn(rawEndSec).compSec;
-
-                        if (mappedStart > 0.001) {
-                            trProp.setValueAtTime(mappedStart, rawStartSec);
-                        }
-                        if (mappedEnd > mappedStart + 0.001) {
-                            trProp.setValueAtTime(mappedEnd, rawEndSec);
-                        }
+                        if (mappedStart > 0.001) trProp.setValueAtTime(mappedStart, rawStartSec);
+                        if (mappedEnd > mappedStart + 0.001) trProp.setValueAtTime(mappedEnd, rawEndSec);
                     }
                     trProp.setValueAtTime(plannedCompDuration, Math.max(0, duration - frameDurSec * 0.5));
 
                     for (var trk = 1; trk <= trProp.numKeys; trk++) {
-                        try {
-                            trProp.setInterpolationTypeAtKey(trk, KeyframeInterpolationType.LINEAR);
-                        } catch (eLin) {}
+                        try { trProp.setInterpolationTypeAtKey(trk, KeyframeInterpolationType.LINEAR); } catch (eLin) {}
                     }
                     videoLayer.outPoint = plannedCompDuration;
                     timeRemapApplied = true;
                     activeTimeMapFn = telemetryAnalysis.timeMapFn;
                     compDuration = plannedCompDuration;
                 } catch (eTr) {
-                    // Roll back cleanly so video and cursor stay 100% locked at 1x
                     try { videoLayer.timeRemapEnabled = false; } catch (eOff) {}
                     comp.duration = duration;
                     compDuration = duration;
@@ -1592,7 +1769,8 @@
                 compDuration = duration;
             }
 
-            // 10. Add Window Matte Shape Layer (Single Clean Alpha Track Matte for Video Footage)
+            // 9. Add Single Aligned Window Matte Shape Layer
+            currentStep = "Creating window matte layer";
             var matteLayer = comp.layers.addShape();
             matteLayer.name = "TraceMotion_Window_Matte";
             matteLayer.parent = cameraRig;
@@ -1600,21 +1778,18 @@
             matteLayer.transform.position.setValue([0, 0]);
             matteLayer.transform.scale.setValue([100, 100]);
 
-            var mRoot = matteLayer.property("ADBE Root Vectors Group");
-            var mGrp = mRoot.addProperty("ADBE Vector Group");
+            var mGrp = matteLayer.property("ADBE Root Vectors Group").addProperty("ADBE Vector Group");
             mGrp.name = "Window Matte Shape";
-            var mVecs = mGrp.property("ADBE Vectors Group");
 
-            var mRect = mVecs.addProperty("ADBE Vector Shape - Rect");
+            var mRect = SafeProp.findFresh(matteLayer, ["ADBE Root Vectors Group", "Window Matte Shape", "ADBE Vectors Group"]).addProperty("ADBE Vector Shape - Rect");
             mRect.property("ADBE Vector Rect Size").setValue([footageW, footageH]);
             mRect.property("ADBE Vector Rect Position").setValue([footageW / 2, footageH / 2]);
             mRect.property("ADBE Vector Rect Roundness").expression =
                 "thisComp.layer('" + controller.name + "').effect('Corner Radius')('Slider');";
 
-            var mFill = mVecs.addProperty("ADBE Vector Graphic - Fill");
+            var mFill = SafeProp.findFresh(matteLayer, ["ADBE Root Vectors Group", "Window Matte Shape", "ADBE Vectors Group"]).addProperty("ADBE Vector Graphic - Fill");
             mFill.property("ADBE Vector Fill Color").setValue([1.0, 1.0, 1.0, 1.0]);
 
-            // Set Video Footage Track Matte to Alpha Matte
             matteLayer.moveBefore(videoLayer);
             try {
                 if (typeof videoLayer.setTrackMatte === "function" && typeof TrackMatteType !== "undefined") {
@@ -1626,7 +1801,8 @@
                 try { videoLayer.trackMatteType = TrackMatteType.ALPHA; } catch (eFallback) {}
             }
 
-            // 11. Spring Physics Solver Configuration
+            // 10. Original main.jsx Spring Physics Solver (Locked 1:1 to activeTimeMapFn)
+            currentStep = "Simulating spring cursor trajectory";
             var feel = options.motionFeel || "natural";
             var smoothingVal = 0.5;
             if (feel === "snappy") smoothingVal = 0.2;
@@ -1655,17 +1831,13 @@
             for (var frame = 0; frame <= totalFrames; frame++) {
                 var timeMs = frame * dtMs;
                 var target = interpolateCursorPosition(rawSamples, timeMs);
-
                 var isDrag = telemetryAnalysis.isDragAtTime(timeMs);
                 var smX, smY;
 
-                if (isDrag || feel === "raw") {
-                    xSpring.value = target.cx;
-                    xSpring.velocity = 0;
-                    ySpring.value = target.cy;
-                    ySpring.velocity = 0;
-                    smX = target.cx;
-                    smY = target.cy;
+                if (isDrag) {
+                    xSpring.value = target.cx; xSpring.velocity = 0;
+                    ySpring.value = target.cy; ySpring.velocity = 0;
+                    smX = target.cx; smY = target.cy;
                 } else {
                     smX = stepSpringValue(xSpring, target.cx, dtMs, springConfig);
                     smY = stepSpringValue(ySpring, target.cy, dtMs, springConfig);
@@ -1687,57 +1859,24 @@
                 finalKeys = rdpSimplify(simulatedPath, normTol);
             }
 
-            // 12. Recordly Smart Zoom & Pan Trajectory (Strict Straight-Line Easing + Full Typing Zoom)
+            // 11. Smart Zoom & Pan Trajectory (Guaranteed Smooth Zoom-Out Recovery!)
+            currentStep = "Generating camera zoom keyframes";
             var targetZoomScale = Math.max(1.0, (options.zoomDepthScale || 1.8));
 
             if (options.zoomMode === "auto-cluster") {
-                var clusters = buildRecordlyZoomClusters(rawSamples, duration, targetZoomScale, telemetryAnalysis.typingIntervals);
-                var easeInOut = new KeyframeEase(0, 84.0);
-
-                controller.effect("Camera Focus")("Point").setValueAtTime(0, [footageW / 2, footageH / 2]);
-                controller.effect("Zoom Scale")("Slider").setValueAtTime(0, 100);
-
-                var zoomTransitionSec = 0.85;
-                for (var cl = 0; cl < clusters.length; cl++) {
-                    var cluster = clusters[cl];
-                    var tStart = activeTimeMapFn(cluster.startSec).compSec;
-                    var tEnd = activeTimeMapFn(cluster.endSec).compSec;
-                    var spanSec = Math.max(0.25, tEnd - tStart);
-                    var transIn = Math.min(zoomTransitionSec, spanSec * 0.35);
-                    var transOut = Math.min(zoomTransitionSec * 0.85, spanSec * 0.35);
-                    var tInEnd = tStart + transIn;
-                    var tOutStart = Math.max(tInEnd + 0.05, tEnd - transOut);
-
-                    var focusPt = [cluster.cx * footageW, cluster.cy * footageH];
-
-                    controller.effect("Zoom Scale")("Slider").setValueAtTime(tStart, 100);
-                    controller.effect("Camera Focus")("Point").setValueAtTime(tStart, focusPt);
-
-                    controller.effect("Zoom Scale")("Slider").setValueAtTime(tInEnd, targetZoomScale * 100);
-                    controller.effect("Camera Focus")("Point").setValueAtTime(tInEnd, focusPt);
-
-                    controller.effect("Zoom Scale")("Slider").setValueAtTime(tOutStart, targetZoomScale * 100);
-                    controller.effect("Camera Focus")("Point").setValueAtTime(tOutStart, focusPt);
-
-                    controller.effect("Zoom Scale")("Slider").setValueAtTime(tEnd, 100);
-                    controller.effect("Camera Focus")("Point").setValueAtTime(tEnd, focusPt);
-                }
-
-                var zProp = controller.effect("Zoom Scale")("Slider");
-                for (var zk = 1; zk <= zProp.numKeys; zk++) {
-                    SafeProp.setTemporalEase(zProp, zk, easeInOut, easeInOut);
-                }
-
-                var pProp = controller.effect("Camera Focus")("Point");
-                for (var pk = 1; pk <= pProp.numKeys; pk++) {
-                    SafeProp.setTemporalEase(pProp, pk, easeInOut, easeInOut);
-                    try {
-                        pProp.setSpatialContinuousAtKey(pk, false);
-                        pProp.setSpatialAutoBezierAtKey(pk, false);
-                        pProp.setInterpolationTypeAtKey(pk, KeyframeInterpolationType.LINEAR);
-                    } catch (e) {}
-                }
-
+                var clusters = buildRecordlyZoomClusters(
+                    rawSamples,
+                    duration,
+                    targetZoomScale,
+                    telemetryAnalysis.typingIntervals,
+                    telemetryAnalysis.scrollIntervals,
+                    {
+                        includeBaseAutoZoom: true,
+                        enableTypingZoom: enableTypingZoom,
+                        enableScrollZoom: enableScrollZoom
+                    }
+                );
+                applyZoomSegmentsToController(controller, clusters, activeTimeMapFn, compDuration, footageW, footageH, targetZoomScale);
             } else if (options.zoomMode === "continuous") {
                 var currentFocusX = footageW / 2;
                 var currentFocusY = footageH / 2;
@@ -1754,20 +1893,34 @@
                     var ptX = kPoint.cx * footageW;
                     var ptY = kPoint.cy * footageH;
 
-                    var safeL = currentFocusX - halfSpanX + insetX;
-                    var safeR = currentFocusX + halfSpanX - insetX;
-                    var safeT = currentFocusY - halfSpanY + insetY;
-                    var safeB = currentFocusY + halfSpanY - insetY;
+                    // During typing with Typing Auto-Zoom & Follow enabled, pull focus directly to typing location
+                    var inTypingFollow = false;
+                    if (enableTypingZoom && telemetryAnalysis.typingIntervals.length > 0) {
+                        for (var tf = 0; tf < telemetryAnalysis.typingIntervals.length; tf++) {
+                            var tiSeg = telemetryAnalysis.typingIntervals[tf];
+                            if (kPoint.timeMs >= tiSeg.startMs && kPoint.timeMs <= tiSeg.endMs) {
+                                currentFocusX = ptX;
+                                currentFocusY = ptY;
+                                inTypingFollow = true;
+                                break;
+                            }
+                        }
+                    }
 
-                    if (ptX < safeL) currentFocusX = ptX + (halfSpanX - insetX);
-                    else if (ptX > safeR) currentFocusX = ptX - (halfSpanX - insetX);
+                    if (!inTypingFollow) {
+                        var safeL = currentFocusX - halfSpanX + insetX;
+                        var safeR = currentFocusX + halfSpanX - insetX;
+                        var safeT = currentFocusY - halfSpanY + insetY;
+                        var safeB = currentFocusY + halfSpanY - insetY;
 
-                    if (ptY < safeT) currentFocusY = ptY + (halfSpanY - insetY);
-                    else if (ptY > safeB) currentFocusY = ptY - (halfSpanY - insetY);
+                        if (ptX < safeL) currentFocusX = ptX + (halfSpanX - insetX);
+                        else if (ptX > safeR) currentFocusX = ptX - (halfSpanX - insetX);
+                        if (ptY < safeT) currentFocusY = ptY + (halfSpanY - insetY);
+                        else if (ptY > safeB) currentFocusY = ptY - (halfSpanY - insetY);
+                    }
 
                     currentFocusX = Math.max(halfSpanX, Math.min(footageW - halfSpanX, currentFocusX));
                     currentFocusY = Math.max(halfSpanY, Math.min(footageH - halfSpanY, currentFocusY));
-
                     controller.effect("Camera Focus")("Point").setValueAtTime(kPoint.timeSec, [currentFocusX, currentFocusY]);
                 }
 
@@ -1783,11 +1936,29 @@
                     } catch (e) {}
                 }
             } else {
-                controller.effect("Zoom Scale")("Slider").setValue(100);
-                controller.effect("Camera Focus")("Point").setValue([footageW / 2, footageH / 2]);
+                // Static mode: stays 100% unless additive Typing/Scroll Auto-Zoom is explicitly enabled
+                if (enableTypingZoom || enableScrollZoom) {
+                    var additiveClusters = buildRecordlyZoomClusters(
+                        rawSamples,
+                        duration,
+                        targetZoomScale,
+                        telemetryAnalysis.typingIntervals,
+                        telemetryAnalysis.scrollIntervals,
+                        {
+                            includeBaseAutoZoom: false,
+                            enableTypingZoom: enableTypingZoom,
+                            enableScrollZoom: enableScrollZoom
+                        }
+                    );
+                    applyZoomSegmentsToController(controller, additiveClusters, activeTimeMapFn, compDuration, footageW, footageH, targetZoomScale);
+                } else {
+                    controller.effect("Zoom Scale")("Slider").setValue(100);
+                    controller.effect("Camera Focus")("Point").setValue([footageW / 2, footageH / 2]);
+                }
             }
 
-            // 13. Create Master Cursor Null (Carries Spring Position, Velocity Sway & Click Bounce)
+            // 12. Master Cursor Null (Restored main.jsx Position Curves, Velocity Sway & Click Bounce)
+            currentStep = "Creating master cursor null";
             var cursorMaster = comp.layers.addNull();
             cursorMaster.name = "TraceMotion_Cursor_Master";
             cursorMaster.guideLayer = true;
@@ -1808,52 +1979,51 @@
                 } catch (e) {}
             }
 
-            // Dynamic Velocity Sway (Tilt Rotation)
+            // Live Sync Offset expression on position
+            masterPosProp.expression =
+                "var off = thisComp.layer('" + controller.name + "').effect('Cursor Sync Offset (ms)')('Slider') / 1000.0;\n" +
+                "valueAtTime(Math.max(0, time - off));";
+
+            // Restored main.jsx Dynamic Velocity Sway (Tilt Rotation) — sync-offset safe!
             if (options.enableVelocitySway !== false) {
                 cursorMaster.transform.rotation.expression =
-                    "var swayMaxDeg = 10.0 * thisComp.layer('" + controller.name + "').effect('Cursor Sway')('Slider');\n" +
-                    "var vx = transform.position.velocity[0];\n" +
+                    "var ctrl = thisComp.layer('" + controller.name + "');\n" +
+                    "var swayMaxDeg = 10.0 * ctrl.effect('Cursor Sway')('Slider');\n" +
+                    "var off = ctrl.effect('Cursor Sync Offset (ms)')('Slider') / 1000.0;\n" +
+                    "var tEval = Math.max(0, time - off);\n" +
+                    "var vx = transform.position.velocityAtTime(tEval)[0];\n" +
+                    "if (vx === 0 && tEval > thisComp.frameDuration) {\n" +
+                    "    var dt = thisComp.frameDuration;\n" +
+                    "    vx = (transform.position.valueAtTime(tEval)[0] - transform.position.valueAtTime(tEval - dt)[0]) / dt;\n" +
+                    "}\n" +
                     "var normVx = Math.max(-1.0, Math.min(1.0, vx / 2200.0));\n" +
                     "-normVx * swayMaxDeg;";
             }
 
-            // Click Bounce Compression
+            // Restored main.jsx Click Bounce Compression (84% dip -> 104% overshoot -> 100%)
             if (options.enableClickBounce !== false && clickSamplesList.length > 0) {
                 var scaleProp = cursorMaster.transform.scale;
                 scaleProp.setValue([100, 100]);
-
-                var bounceDurationSec = 0.350;
-                var depressionScale = 84.0;
-                var overshootScale = 104.0;
-
                 for (var ci = 0; ci < clickSamplesList.length; ci++) {
                     var cSample = clickSamplesList[ci];
                     var mappedClickSec = activeTimeMapFn(cSample.timeMs / 1000.0).compSec;
-                    var tDip = mappedClickSec + 0.045;
-                    var tOvershoot = mappedClickSec + 0.160;
-                    var tSettle = mappedClickSec + bounceDurationSec;
-
-                    if (mappedClickSec > 0.02) {
-                        scaleProp.setValueAtTime(mappedClickSec - 0.016, [100, 100]);
-                    }
+                    if (mappedClickSec > 0.02) scaleProp.setValueAtTime(mappedClickSec - 0.016, [100, 100]);
                     scaleProp.setValueAtTime(mappedClickSec, [100, 100]);
-                    scaleProp.setValueAtTime(tDip, [depressionScale, depressionScale]);
-                    scaleProp.setValueAtTime(tOvershoot, [overshootScale, overshootScale]);
-                    scaleProp.setValueAtTime(tSettle, [100, 100]);
+                    scaleProp.setValueAtTime(mappedClickSec + 0.045, [84.0, 84.0]);
+                    scaleProp.setValueAtTime(mappedClickSec + 0.160, [104.0, 104.0]);
+                    scaleProp.setValueAtTime(mappedClickSec + 0.350, [100, 100]);
                 }
+                scaleProp.expression =
+                    "var off = thisComp.layer('" + controller.name + "').effect('Cursor Sync Offset (ms)')('Slider') / 1000.0;\n" +
+                    "valueAtTime(Math.max(0, time - off));";
             }
 
-            // 14. Create Multi-State Cursor Stack
+            // 13. Multi-State Cursor Stack
+            currentStep = "Building multi-state cursor stack";
             var styleKey = options.cursorStyle || "tahoe";
             var styleDef = CURSOR_MANIFEST[styleKey] || CURSOR_MANIFEST.tahoe;
             var userCursorScale = (options.cursorScale || 100) / 100.0;
             var baseCursorHeight = 32.0 * userCursorScale;
-            var preferSvg = false;
-            try {
-                if (typeof app !== "undefined" && app.version && parseFloat(app.version) >= 24.0) {
-                    preferSvg = false; // PNG 512px Retina is universally crisp and zero-issue across AE 2020-2026
-                }
-            } catch (eVer) {}
 
             var cursorStateLayers = {};
             var cursorStateNames = [
@@ -1864,10 +2034,8 @@
 
             for (var st = 0; st < cursorStateNames.length; st++) {
                 var stateName = cursorStateNames[st];
-                var assetFile = getCursorAssetFile(styleKey, stateName, preferSvg);
-                if (!assetFile || !assetFile.exists) {
-                    assetFile = getCursorAssetFile(styleKey, "arrow", preferSvg);
-                }
+                var assetFile = getCursorAssetFile(styleKey, stateName, false);
+                if (!assetFile || !assetFile.exists) assetFile = getCursorAssetFile(styleKey, "arrow", false);
                 if (!assetFile || !assetFile.exists) continue;
 
                 var cursorItem = proj.importFile(new ImportOptions(assetFile));
@@ -1877,9 +2045,10 @@
                 cLayer.motionBlur = options.enableMotionBlur !== false;
 
                 var anchorMeta = (styleDef.cursors && styleDef.cursors[stateName]) || { anchorX: 0.34, anchorY: 0.24 };
-                var hotspotX = cursorItem.width * anchorMeta.anchorX;
-                var hotspotY = cursorItem.height * anchorMeta.anchorY;
-                cLayer.transform.anchorPoint.setValue([hotspotX, hotspotY]);
+                var useAltAnchor = (anchorMeta.altPng && assetFile.name === anchorMeta.altPng && anchorMeta.altAnchorX !== undefined);
+                var ax = useAltAnchor ? anchorMeta.altAnchorX : anchorMeta.anchorX;
+                var ay = useAltAnchor ? anchorMeta.altAnchorY : anchorMeta.anchorY;
+                cLayer.transform.anchorPoint.setValue([cursorItem.width * ax, cursorItem.height * ay]);
                 cLayer.transform.position.setValue([0, 0]);
 
                 var targetH = (stateName === "text" || stateName.indexOf("resize") >= 0) ? (baseCursorHeight * 1.15) : baseCursorHeight;
@@ -1890,12 +2059,10 @@
                 cLayer.transform.opacity.setValueAtTime(0, (stateName === "arrow") ? 100.0 : 0.0);
             }
 
-            // Silent procedural vector cursor fallback if PNG assets are not found on disk
             if (getObjectKeys(cursorStateLayers).length === 0) {
                 cursorStateLayers.arrow = createProceduralCursorLayer(comp, cursorMaster, baseCursorHeight, options.enableMotionBlur !== false);
             }
 
-            // Dynamic State Switching via Opacity Hold Keyframes (ES3 Safe)
             if (options.enableAutoStates !== false && getObjectKeys(cursorStateLayers).length > 1) {
                 var stateRuns = [];
                 var currentRunState = rawSamples[0].cursorType || "arrow";
@@ -1919,25 +2086,32 @@
                     endSec: compDuration
                 });
 
+                var stateSyncExpr =
+                    "var off = thisComp.layer('" + controller.name + "').effect('Cursor Sync Offset (ms)')('Slider') / 1000.0;\n" +
+                    "valueAtTime(Math.max(0, time - off));";
+
                 for (var runI = 0; runI < stateRuns.length; runI++) {
                     var run = stateRuns[runI];
                     var activeState = cursorStateLayers[run.state] ? run.state : "arrow";
-
                     for (var sKey in cursorStateLayers) {
                         if (cursorStateLayers.hasOwnProperty(sKey)) {
                             var opProp = cursorStateLayers[sKey].transform.opacity;
-                            var targetOpacity = (sKey === activeState) ? 100.0 : 0.0;
-                            opProp.setValueAtTime(run.startSec, targetOpacity);
-                            var kIdxVal = opProp.nearestKeyIndex(run.startSec);
+                            opProp.setValueAtTime(run.startSec, (sKey === activeState) ? 100.0 : 0.0);
                             try {
-                                opProp.setInterpolationTypeAtKey(kIdxVal, KeyframeInterpolationType.HOLD);
+                                opProp.setInterpolationTypeAtKey(opProp.nearestKeyIndex(run.startSec), KeyframeInterpolationType.HOLD);
                             } catch (eHold) {}
                         }
                     }
                 }
+                for (var sKey2 in cursorStateLayers) {
+                    if (cursorStateLayers.hasOwnProperty(sKey2)) {
+                        SafeProp.setExpression(cursorStateLayers[sKey2].transform.opacity, stateSyncExpr);
+                    }
+                }
             }
 
-            // 15. Create Two-Tier Studio Click Ripple VFX Layer (Zero Stale-Ref Crashes & Zero Top-Left Artifacts!)
+            // 14. Two-Tier Studio Click Ripple VFX Layer (Zero Stale Refs, Synced to Time Remap)
+            currentStep = "Generating click ripples";
             var rippleOption = options.clickEffect || "#2563EB";
             if (rippleOption !== "none" && clickSamplesList.length > 0) {
                 var rippleLayer = comp.layers.addShape();
@@ -1957,124 +2131,102 @@
                 var maxRadius = Math.max(40, baseCursorHeight * 1.9);
                 var cubicEaseOut = new KeyframeEase(0, 88.0);
                 var cubicEaseIn = new KeyframeEase(0, 20.0);
+                var syncExpr =
+                    "var off = thisComp.layer('" + controller.name + "').effect('Cursor Sync Offset (ms)')('Slider') / 1000.0;\n" +
+                    "valueAtTime(Math.max(0, time - off));";
 
                 for (var rc = 0; rc < clickSamplesList.length; rc++) {
                     var clickSample = clickSamplesList[rc];
                     var mappedClickStart = activeTimeMapFn(clickSample.timeMs / 1000.0).compSec;
                     var isDouble = (clickSample.interactionType === "double-click");
-                    var ringMaxDiam = (isDouble ? maxRadius * 2.4 : maxRadius * 2.1);
-                    var discMaxDiam = (isDouble ? maxRadius * 1.05 : maxRadius * 0.9);
+                    var ringMaxDiam = isDouble ? (maxRadius * 2.4) : (maxRadius * 2.1);
+                    var discMaxDiam = isDouble ? (maxRadius * 1.05) : (maxRadius * 0.9);
                     var tInnerEnd = mappedClickStart + 0.240;
                     var tOuterEnd = mappedClickStart + 0.520;
 
-                    // Lock ripple position to smoothed cursor position at click time so it emanates from the exact cursor tip
                     var simPos = interpolateCursorPosition(simulatedPath, clickSample.timeMs);
                     var rippleX = (simPos ? simPos.cx : clickSample.cx) * footageW;
                     var rippleY = (simPos ? simPos.cy : clickSample.cy) * footageH;
 
-                    // Re-fetch root fresh every iteration to prevent ExtendScript reference invalidation
-                    var rRootFresh = rippleLayer.property("ADBE Root Vectors Group");
                     var rGroupName = "Ripple_" + (rc + 1);
-                    var rGroup = rRootFresh.addProperty("ADBE Vector Group");
+                    var rGroup = rippleLayer.property("ADBE Root Vectors Group").addProperty("ADBE Vector Group");
                     rGroup.name = rGroupName;
 
-                    // Set group position immediately
-                    var rTrans = rGroup.property("ADBE Vector Transform Group");
+                    var rTrans = SafeProp.findFresh(rippleLayer, ["ADBE Root Vectors Group", rGroupName, "ADBE Vector Transform Group"]);
                     rTrans.property("ADBE Vector Position").setValue([rippleX, rippleY]);
                     rTrans.property("ADBE Vector Anchor").setValue([0, 0]);
 
-                    // Create two ISOLATED sub-groups inside Ripple_N:
-                    // (A) Inner_Pop (Fill only) and (B) Outer_Ring (Stroke only)
-                    // Configure each property immediately upon creation so no addProperty() ever invalidates an earlier reference!
-                    var rParentVecs = rGroup.property("ADBE Vectors Group");
-
-                    // --- TIER 1: Inner Soft Pop Disc ---
-                    var innerGrp = rParentVecs.addProperty("ADBE Vector Group");
+                    // Tier 1: Inner Soft Pop Disc
+                    var innerGrp = SafeProp.findFresh(rippleLayer, ["ADBE Root Vectors Group", rGroupName, "ADBE Vectors Group"]).addProperty("ADBE Vector Group");
                     innerGrp.name = "Inner_Pop";
-                    var innerVecs = innerGrp.property("ADBE Vectors Group");
 
-                    var inEll = innerVecs.addProperty("ADBE Vector Shape - Ellipse");
+                    var inEll = SafeProp.findFresh(rippleLayer, ["ADBE Root Vectors Group", rGroupName, "ADBE Vectors Group", "Inner_Pop", "ADBE Vectors Group"]).addProperty("ADBE Vector Shape - Ellipse");
                     var inEllSize = inEll.property("ADBE Vector Ellipse Size");
                     inEllSize.setValueAtTime(0, [0, 0]);
-                    if (mappedClickStart > frameDurSec) {
-                        inEllSize.setValueAtTime(mappedClickStart - frameDurSec, [0, 0]);
-                    }
+                    if (mappedClickStart > frameDurSec) inEllSize.setValueAtTime(mappedClickStart - frameDurSec, [0, 0]);
                     inEllSize.setValueAtTime(mappedClickStart, [4, 4]);
                     inEllSize.setValueAtTime(tInnerEnd, [discMaxDiam, discMaxDiam]);
                     inEllSize.setValueAtTime(tInnerEnd + frameDurSec, [0, 0]);
                     try {
-                        var kIn0 = inEllSize.nearestKeyIndex(0);
-                        inEllSize.setInterpolationTypeAtKey(kIn0, KeyframeInterpolationType.HOLD);
-                        if (mappedClickStart > frameDurSec) {
-                            inEllSize.setInterpolationTypeAtKey(inEllSize.nearestKeyIndex(mappedClickStart - frameDurSec), KeyframeInterpolationType.HOLD);
-                        }
+                        inEllSize.setInterpolationTypeAtKey(inEllSize.nearestKeyIndex(0), KeyframeInterpolationType.HOLD);
+                        if (mappedClickStart > frameDurSec) inEllSize.setInterpolationTypeAtKey(inEllSize.nearestKeyIndex(mappedClickStart - frameDurSec), KeyframeInterpolationType.HOLD);
                         SafeProp.setTemporalEase(inEllSize, inEllSize.nearestKeyIndex(mappedClickStart), cubicEaseIn, cubicEaseOut);
                         SafeProp.setTemporalEase(inEllSize, inEllSize.nearestKeyIndex(tInnerEnd), cubicEaseOut, cubicEaseIn);
-                    } catch (eInEase) {}
+                        inEllSize.expression = syncExpr;
+                    } catch (eInE) {}
 
-                    var inFill = innerVecs.addProperty("ADBE Vector Graphic - Fill");
+                    var inFill = SafeProp.findFresh(rippleLayer, ["ADBE Root Vectors Group", rGroupName, "ADBE Vectors Group", "Inner_Pop", "ADBE Vectors Group"]).addProperty("ADBE Vector Graphic - Fill");
                     inFill.property("ADBE Vector Fill Color").setValue([rgbColor[0], rgbColor[1], rgbColor[2], 1.0]);
                     var inFillOp = inFill.property("ADBE Vector Fill Opacity");
                     inFillOp.setValueAtTime(0, 0.0);
-                    if (mappedClickStart > frameDurSec) {
-                        inFillOp.setValueAtTime(mappedClickStart - frameDurSec, 0.0);
-                    }
+                    if (mappedClickStart > frameDurSec) inFillOp.setValueAtTime(mappedClickStart - frameDurSec, 0.0);
                     inFillOp.setValueAtTime(mappedClickStart, 42.0);
                     inFillOp.setValueAtTime(tInnerEnd, 0.0);
                     inFillOp.setValueAtTime(tInnerEnd + frameDurSec, 0.0);
                     try {
                         inFillOp.setInterpolationTypeAtKey(inFillOp.nearestKeyIndex(0), KeyframeInterpolationType.HOLD);
-                        if (mappedClickStart > frameDurSec) {
-                            inFillOp.setInterpolationTypeAtKey(inFillOp.nearestKeyIndex(mappedClickStart - frameDurSec), KeyframeInterpolationType.HOLD);
-                        }
-                    } catch (eInOp) {}
+                        if (mappedClickStart > frameDurSec) inFillOp.setInterpolationTypeAtKey(inFillOp.nearestKeyIndex(mappedClickStart - frameDurSec), KeyframeInterpolationType.HOLD);
+                        inFillOp.expression = syncExpr;
+                    } catch (eInO) {}
 
-                    // --- TIER 2: Outer Expanding Shockwave Ring ---
-                    // Re-fetch rParentVecs fresh from rippleLayer before adding second sub-group
-                    var rParentVecs2 = SafeProp.findFresh(rippleLayer, ["ADBE Root Vectors Group", rGroupName, "ADBE Vectors Group"]);
-                    var outerGrp = rParentVecs2.addProperty("ADBE Vector Group");
+                    // Tier 2: Outer Expanding Shockwave Ring
+                    var outerGrp = SafeProp.findFresh(rippleLayer, ["ADBE Root Vectors Group", rGroupName, "ADBE Vectors Group"]).addProperty("ADBE Vector Group");
                     outerGrp.name = "Outer_Ring";
-                    var outerVecs = outerGrp.property("ADBE Vectors Group");
 
-                    var outEll = outerVecs.addProperty("ADBE Vector Shape - Ellipse");
+                    var outEll = SafeProp.findFresh(rippleLayer, ["ADBE Root Vectors Group", rGroupName, "ADBE Vectors Group", "Outer_Ring", "ADBE Vectors Group"]).addProperty("ADBE Vector Shape - Ellipse");
                     var outEllSize = outEll.property("ADBE Vector Ellipse Size");
                     outEllSize.setValueAtTime(0, [0, 0]);
-                    if (mappedClickStart > frameDurSec) {
-                        outEllSize.setValueAtTime(mappedClickStart - frameDurSec, [0, 0]);
-                    }
+                    if (mappedClickStart > frameDurSec) outEllSize.setValueAtTime(mappedClickStart - frameDurSec, [0, 0]);
                     outEllSize.setValueAtTime(mappedClickStart, [6, 6]);
                     outEllSize.setValueAtTime(tOuterEnd, [ringMaxDiam, ringMaxDiam]);
                     outEllSize.setValueAtTime(tOuterEnd + frameDurSec, [0, 0]);
                     try {
                         outEllSize.setInterpolationTypeAtKey(outEllSize.nearestKeyIndex(0), KeyframeInterpolationType.HOLD);
-                        if (mappedClickStart > frameDurSec) {
-                            outEllSize.setInterpolationTypeAtKey(outEllSize.nearestKeyIndex(mappedClickStart - frameDurSec), KeyframeInterpolationType.HOLD);
-                        }
+                        if (mappedClickStart > frameDurSec) outEllSize.setInterpolationTypeAtKey(outEllSize.nearestKeyIndex(mappedClickStart - frameDurSec), KeyframeInterpolationType.HOLD);
                         SafeProp.setTemporalEase(outEllSize, outEllSize.nearestKeyIndex(mappedClickStart), cubicEaseIn, cubicEaseOut);
                         SafeProp.setTemporalEase(outEllSize, outEllSize.nearestKeyIndex(tOuterEnd), cubicEaseOut, cubicEaseIn);
-                    } catch (eOutEase) {}
+                        outEllSize.expression = syncExpr;
+                    } catch (eOutE) {}
 
-                    var outStroke = outerVecs.addProperty("ADBE Vector Graphic - Stroke");
+                    var outStroke = SafeProp.findFresh(rippleLayer, ["ADBE Root Vectors Group", rGroupName, "ADBE Vectors Group", "Outer_Ring", "ADBE Vectors Group"]).addProperty("ADBE Vector Graphic - Stroke");
                     outStroke.property("ADBE Vector Stroke Color").setValue([rgbColor[0], rgbColor[1], rgbColor[2], 1.0]);
                     var outStrokeW = outStroke.property("ADBE Vector Stroke Width");
                     outStrokeW.setValueAtTime(mappedClickStart, 4.2);
                     outStrokeW.setValueAtTime(tOuterEnd, 0.5);
+                    try { outStrokeW.expression = syncExpr; } catch (eSW) {}
 
                     var outStrokeOp = outStroke.property("ADBE Vector Stroke Opacity");
                     outStrokeOp.setValueAtTime(0, 0.0);
-                    if (mappedClickStart > frameDurSec) {
-                        outStrokeOp.setValueAtTime(mappedClickStart - frameDurSec, 0.0);
-                    }
+                    if (mappedClickStart > frameDurSec) outStrokeOp.setValueAtTime(mappedClickStart - frameDurSec, 0.0);
                     outStrokeOp.setValueAtTime(mappedClickStart, 92.0);
                     outStrokeOp.setValueAtTime(mappedClickStart + 0.140, 75.0);
                     outStrokeOp.setValueAtTime(tOuterEnd, 0.0);
                     outStrokeOp.setValueAtTime(tOuterEnd + frameDurSec, 0.0);
                     try {
                         outStrokeOp.setInterpolationTypeAtKey(outStrokeOp.nearestKeyIndex(0), KeyframeInterpolationType.HOLD);
-                        if (mappedClickStart > frameDurSec) {
-                            outStrokeOp.setInterpolationTypeAtKey(outStrokeOp.nearestKeyIndex(mappedClickStart - frameDurSec), KeyframeInterpolationType.HOLD);
-                        }
-                    } catch (eOutOp) {}
+                        if (mappedClickStart > frameDurSec) outStrokeOp.setInterpolationTypeAtKey(outStrokeOp.nearestKeyIndex(mappedClickStart - frameDurSec), KeyframeInterpolationType.HOLD);
+                        outStrokeOp.expression = syncExpr;
+                    } catch (eOutO) {}
                 }
             }
 
@@ -2094,7 +2246,7 @@
                     "- Cursor: " + styleDef.label + " (" + getObjectKeys(cursorStateLayers).length + " states)\n" +
                     "- Smart Zoom: " + targetZoomScale.toFixed(2) + "x (" + options.zoomMode + ")\n" +
                     "- Click Ripples: " + (rippleOption !== "none" ? (clickSamplesList.length + " animated 2-tier ripples") : "Off") + "\n" +
-                    (timeRemapApplied ? ("- Typing Speed-Up: 2.0x playback & zoom on " + telemetryAnalysis.typingIntervals.length + " typing segment(s)\n") : ""),
+                    (timeRemapApplied ? ("- 2.0x Speed-Up Applied: " + telemetryAnalysis.speedupIntervals.length + " segment(s) (Typing: " + (enableTypingSpeedup ? "On" : "Off") + ", Scroll: " + (enableScrollSpeedup ? "On" : "Off") + ")\n") : ""),
                     "TraceMotion Complete"
                 );
             }
@@ -2106,7 +2258,7 @@
             }
             if (!options.silent) {
                 alert(
-                    "TraceMotion Build Error:\n" + e.toString() +
+                    "TraceMotion Build Error at [" + currentStep + "]:\n" + e.toString() +
                     "\nLine: " + (e.line !== undefined ? e.line : "unknown") +
                     (e.fileName ? "\nFile: " + e.fileName : "") +
                     "\nStack:\n" + (typeof $ !== "undefined" && $.stack ? $.stack : "n/a"),
@@ -2118,7 +2270,7 @@
     }
 
     // =========================================================================
-    // Helper: Draw Rounded Rectangle Path in ScriptUI Graphics
+    // Helper: Draw Rounded Rectangle Path in ScriptUI Graphics (AE 2020+ Safe)
     // =========================================================================
     function drawRoundedRectPath(g, x, y, w, h, r) {
         var rad = Math.max(0, Math.min(r, Math.min(w, h) / 2));
@@ -2131,7 +2283,6 @@
             g.closePath();
             return;
         }
-        // Smooth 8-point chamfered-arc approximation (100% safe across AE 2020-2026 ScriptUI)
         var k = rad * 0.42;
         g.moveTo(x + rad, y);
         g.lineTo(x + w - rad, y);
@@ -2153,24 +2304,19 @@
     }
 
     // =========================================================================
-    // Responsive ScriptUI Studio Panel (AE CC 2020 - 2026+ Dockable Panel)
-    // - Crisp Live Preview Stage (never black!)
-    // - Stacked Tabs (Setup | Cursor | Frame) with zero dead space
-    // - Always-Visible Sticky Footer with Build/Update Rig + Reset
+    // Fully Responsive ScriptUI Studio Panel (AE CC 2020 - 2026+)
     // =========================================================================
     function buildUI(thisObj) {
         var isPanel = (thisObj instanceof Panel) || (thisObj && typeof thisObj.toString === "function" && thisObj.toString().indexOf("Panel") >= 0);
         var win = isPanel
             ? thisObj
-            : new Window("palette", "TraceMotion Studio", undefined, { resizeable: true });
+            : new Window("palette", "TraceMotion Studio", [0, 0, 350, 650], { resizeable: true });
 
-        win.orientation = "column";
-        win.alignChildren = ["fill", "top"];
-        win.spacing = 6;
-        win.margins = [10, 8, 10, 8];
+        win.margins = 0;
+        win.spacing = 0;
 
         try {
-            var bgCol = [0.105, 0.110, 0.133, 1.0]; // #1b1c22
+            var bgCol = [0.105, 0.110, 0.133, 1.0];
             win.graphics.backgroundColor = win.graphics.newBrush(win.graphics.BrushType.SOLID_COLOR, bgCol);
         } catch (e) {}
 
@@ -2191,10 +2337,27 @@
         var currentRippleColor = getPref("selectedRippleColor", "#2563EB");
         var currentSyncOffsetMs = parseInt(getPref("selectedSyncOffsetMs", "0"), 10) || 0;
 
+        var optTypingSpeedup = getBoolPref("enableTypingSpeedup", true);
+        var optTypingZoom = getBoolPref("enableTypingZoom", true);
+        var optScrollSpeedup = getBoolPref("enableScrollSpeedup", true);
+        var optScrollZoom = getBoolPref("enableScrollZoom", true);
+
         var selectedVideoFile = null;
         var selectedJsonFile = null;
         var previewCursorImg = null;
-        var stageClickPos = { nx: 0.56, ny: 0.54, hasRipple: true };
+        var previewBgImg = null;
+        var bgImageCache = {};
+        var isSyncingBg = false;
+        var stageClickPos = { nx: 0.58, ny: 0.56, hasRipple: true };
+
+        var hudFont = null;
+        var tabFontBold = null;
+        var tabFontReg = null;
+        try {
+            hudFont = ScriptUI.newFont("Verdana", "Bold", 9);
+            tabFontBold = ScriptUI.newFont("Verdana", "Bold", 10);
+            tabFontReg = ScriptUI.newFont("Verdana", "Regular", 10);
+        } catch (eF) {}
 
         function refreshPreviewAssets() {
             var cF = getCursorPreviewFile(currentCursorKey);
@@ -2203,40 +2366,54 @@
             } else {
                 previewCursorImg = null;
             }
+
+            if (currentBgKey === "none" || currentBgKey === "dark-studio" || BACKGROUND_PRESETS[currentBgKey]) {
+                previewBgImg = null;
+            } else if (bgImageCache[currentBgKey] !== undefined) {
+                previewBgImg = bgImageCache[currentBgKey];
+            } else {
+                var wF = getWallpaperAssetFile(currentBgKey.indexOf(".") > 0 ? currentBgKey : (currentBgKey + ".jpg"));
+                if (wF && wF.exists) {
+                    try {
+                        previewBgImg = ScriptUI.newImage(wF);
+                        bgImageCache[currentBgKey] = previewBgImg;
+                    } catch (eBg) {
+                        previewBgImg = null;
+                        bgImageCache[currentBgKey] = null;
+                    }
+                } else {
+                    previewBgImg = null;
+                    bgImageCache[currentBgKey] = null;
+                }
+            }
         }
         refreshPreviewAssets();
 
         // ---------------------------------------------------------------------
-        // 1. STICKY HEADER
+        // BAND 1: STICKY HEADER
         // ---------------------------------------------------------------------
-        var headerGrp = win.add("group");
+        var headerGrp = win.add("group", [10, 6, 340, 38]);
         headerGrp.orientation = "row";
         headerGrp.alignChildren = ["left", "center"];
-        headerGrp.alignment = ["fill", "top"];
         headerGrp.spacing = 8;
-        headerGrp.margins = [0, 0, 0, 2];
+        headerGrp.margins = 0;
 
-        var emblemBox = headerGrp.add("group");
-        emblemBox.preferredSize = [26, 26];
-        emblemBox.minimumSize = [26, 26];
-        emblemBox.maximumSize = [26, 26];
-        emblemBox.onDraw = function () {
+        var emblemBtn = headerGrp.add("button", [0, 0, 26, 26], "");
+        emblemBtn.preferredSize = [26, 26];
+        emblemBtn.minimumSize = [26, 26];
+        emblemBtn.maximumSize = [26, 26];
+        emblemBtn.onDraw = function () {
             try {
                 var g = this.graphics;
-                var bgB = g.newBrush(g.BrushType.SOLID_COLOR, [0.145, 0.388, 0.922, 1.0]);
                 drawRoundedRectPath(g, 0, 0, 26, 26, 6);
-                g.fillPath(bgB);
-
-                var pen = g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.75], 1.4);
+                g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0.145, 0.388, 0.922, 1.0]));
                 g.newPath();
                 g.moveTo(5, 6); g.lineTo(21, 6); g.lineTo(21, 18); g.lineTo(5, 18); g.closePath();
-                g.strokePath(pen);
-
+                g.strokePath(g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.80], 1.4));
                 g.newPath();
                 g.moveTo(11, 10); g.lineTo(18, 13.5); g.lineTo(14.5, 15.2); g.lineTo(13, 19); g.closePath();
-                var fillW = g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 1.0, 1.0, 1.0]);
-                g.fillPath(fillW);
-            } catch (eDraw) {}
+                g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 1.0, 1.0, 1.0]));
+            } catch (eEm) {}
         };
 
         var titleCol = headerGrp.add("group");
@@ -2249,7 +2426,7 @@
         try { titleTxt.graphics.font = ScriptUI.newFont("Verdana", "Bold", 12); } catch (e) {}
         try { titleTxt.graphics.foregroundColor = titleTxt.graphics.newPen(titleTxt.graphics.PenType.SOLID_COLOR, [0.96, 0.97, 0.99, 1.0], 1); } catch (e) {}
 
-        var subTxt = titleCol.add("statictext", undefined, "Recordly Smart Framing & Cursor Rig");
+        var subTxt = titleCol.add("statictext", undefined, "Recordly Framing & Cursor Rig");
         try { subTxt.graphics.font = ScriptUI.newFont("Verdana", "Regular", 9); } catch (e) {}
         try { subTxt.graphics.foregroundColor = subTxt.graphics.newPen(subTxt.graphics.PenType.SOLID_COLOR, [0.62, 0.66, 0.74, 1.0], 1); } catch (e) {}
 
@@ -2264,35 +2441,46 @@
         } catch (e) {}
 
         // ---------------------------------------------------------------------
-        // 2. LIVE INTERACTIVE COMPOSITION PREVIEW STAGE (Uses Group, Never Black!)
+        // BAND 2: LIVE INTERACTIVE PREVIEW CANVAS (Owner-Drawn Button)
         // ---------------------------------------------------------------------
-        var previewStage = win.add("group");
-        previewStage.preferredSize = [300, 132];
-        previewStage.minimumSize = [200, 96];
-        previewStage.alignment = ["fill", "top"];
-
-        var hudFont = null;
-        try { hudFont = ScriptUI.newFont("Verdana", "Bold", 9); } catch (eF) {}
+        var previewCanvas = win.add("button", [10, 44, 340, 168], "");
 
         function redrawPreview() {
-            try {
-                previewStage.notify("onDraw");
-            } catch (eNot) {
-                try {
-                    previewStage.visible = false;
-                    previewStage.visible = true;
-                } catch (eVis) {}
-            }
+            try { previewCanvas.notify("onDraw"); } catch (e1) {}
+            try { win.update(); } catch (e2) {}
         }
 
-        previewStage.onDraw = function () {
+        previewCanvas.onDraw = function () {
             try {
                 var g = this.graphics;
-                var w = (this.size && this.size[0] > 10) ? this.size[0] : (this.bounds ? (this.bounds[2] - this.bounds[0]) : 300);
-                var h = (this.size && this.size[1] > 10) ? this.size[1] : (this.bounds ? (this.bounds[3] - this.bounds[1]) : 132);
+                var w = (this.size && this.size[0] > 10) ? this.size[0] : (this.bounds ? (this.bounds[2] - this.bounds[0]) : 320);
+                var h = (this.size && this.size[1] > 10) ? this.size[1] : (this.bounds ? (this.bounds[3] - this.bounds[1]) : 124);
                 if (w < 20 || h < 20) return;
 
-                // 1. Draw Backdrop (Checkerboard for None, or Smooth 28-Step Gradient for All Presets/Wallpapers)
+                var wpMeta = getWallpaperMeta(currentBgKey);
+                var bgStart = wpMeta.start || [0.231, 0.510, 0.965];
+                var bgEnd = wpMeta.end || [0.545, 0.361, 0.965];
+                var activeFont = hudFont || g.font;
+
+                // Compact Strip Mode when height <= 52px (short horizontal dock)
+                if (h <= 52) {
+                    drawRoundedRectPath(g, 0, 0, w - 1, h - 1, 6);
+                    g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0.145, 0.155, 0.185, 1.0]));
+                    drawRoundedRectPath(g, 0, 0, w - 1, h - 1, 6);
+                    g.strokePath(g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.16], 1));
+
+                    var swBrush = g.newBrush(g.BrushType.SOLID_COLOR, currentBgKey === "none" ? [0.22, 0.24, 0.28, 1.0] : [bgStart[0], bgStart[1], bgStart[2], 1.0]);
+                    drawRoundedRectPath(g, 8, Math.round((h - 20) / 2), 20, 20, 4);
+                    g.fillPath(swBrush);
+
+                    var summaryStr = "Preview: " + wpMeta.label + " | " + (currentZoomMode === "static" ? "Static" : (currentZoomScale.toFixed(2) + "x")) + " | " + currentCornerRadius + "px";
+                    var sm = g.measureString(summaryStr, activeFont);
+                    var smY = Math.max(2, Math.round((h - sm[1]) / 2));
+                    g.drawString(summaryStr, g.newPen(g.PenType.SOLID_COLOR, [0.92, 0.94, 0.98, 1.0], 1), 36, smY, activeFont);
+                    return;
+                }
+
+                // 1. Background Render (Wallpaper Image -> Gradient -> Checkerboard for None)
                 if (currentBgKey === "none") {
                     var c1 = g.newBrush(g.BrushType.SOLID_COLOR, [0.13, 0.14, 0.17, 1.0]);
                     var c2 = g.newBrush(g.BrushType.SOLID_COLOR, [0.19, 0.21, 0.25, 1.0]);
@@ -2306,148 +2494,122 @@
                         }
                     }
                 } else {
-                    var wpMeta = getWallpaperMeta(currentBgKey);
-                    var bgStart = wpMeta.start || [0.231, 0.510, 0.965];
-                    var bgEnd = wpMeta.end || [0.545, 0.361, 0.965];
-                    var steps = 28;
-                    var sw = w / steps;
-                    for (var si = 0; si < steps; si++) {
-                        var t = si / (steps - 1);
-                        var rCol = bgStart[0] + (bgEnd[0] - bgStart[0]) * t;
-                        var gCol = bgStart[1] + (bgEnd[1] - bgStart[1]) * t;
-                        var bCol = bgStart[2] + (bgEnd[2] - bgStart[2]) * t;
-                        var stripBrush = g.newBrush(g.BrushType.SOLID_COLOR, [rCol, gCol, bCol, 1.0]);
-                        g.rectPath(Math.floor(si * sw), 0, Math.ceil(sw) + 1, h);
-                        g.fillPath(stripBrush);
+                    var drewBgImg = false;
+                    if (previewBgImg) {
+                        try {
+                            g.drawImage(previewBgImg, 0, 0, w, h);
+                            drewBgImg = true;
+                        } catch (eBgDraw) {
+                            drewBgImg = false;
+                        }
+                    }
+                    if (!drewBgImg) {
+                        var steps = 28;
+                        var sw = w / steps;
+                        for (var si = 0; si < steps; si++) {
+                            var t = si / (steps - 1);
+                            var rCol = bgStart[0] + (bgEnd[0] - bgStart[0]) * t;
+                            var gCol = bgStart[1] + (bgEnd[1] - bgStart[1]) * t;
+                            var bCol = bgStart[2] + (bgEnd[2] - bgStart[2]) * t;
+                            g.rectPath(Math.floor(si * sw), 0, Math.ceil(sw) + 1, h);
+                            g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [rCol, gCol, bCol, 1.0]));
+                        }
                     }
                 }
 
-                // 2. Floating Desktop Window (Reacts Live to Margin, Corner Radius & Drop Shadow!)
-                var marginFrac = 0.06 + (currentMargin / 100.0) * 0.72;
-                var winW = Math.max(60, Math.round(w * (1.0 - marginFrac)));
-                var winH = Math.max(44, Math.round(h * (1.0 - marginFrac)));
+                // 2. Floating Desktop Window (Reacts Live to Margin, Corner Radius & Drop Shadow)
+                var topHudClearance = 24;
+                var availH = Math.max(36, h - topHudClearance - 6);
+                var marginFrac = 0.06 + (currentMargin / 100.0) * 0.65;
+                var winW = Math.max(56, Math.round(w * (1.0 - marginFrac)));
+                var winH = Math.max(34, Math.round(availH * (1.0 - marginFrac * 0.6)));
                 var winX = Math.round((w - winW) / 2);
-                var winY = Math.round((h - winH) / 2) + 4;
-                var scaledRad = Math.round(currentCornerRadius * 0.38);
+                var winY = topHudClearance + Math.round((availH - winH) / 2);
+                var scaledRad = Math.round(currentCornerRadius * 0.36);
 
-                // Multi-stage soft drop shadow
                 if (currentShadow > 0) {
-                    var shAlpha1 = (currentShadow / 100.0) * 0.28;
-                    var shAlpha2 = (currentShadow / 100.0) * 0.42;
-                    var shSpread = Math.round(3 + (currentShadow / 100.0) * 5);
-                    var shBrush1 = g.newBrush(g.BrushType.SOLID_COLOR, [0.0, 0.0, 0.0, shAlpha1]);
-                    drawRoundedRectPath(g, winX - 2, winY + shSpread, winW + 4, winH + 2, scaledRad + 2);
-                    g.fillPath(shBrush1);
-
-                    var shBrush2 = g.newBrush(g.BrushType.SOLID_COLOR, [0.0, 0.0, 0.0, shAlpha2]);
-                    drawRoundedRectPath(g, winX + 1, winY + Math.round(shSpread * 0.55), winW, winH, scaledRad);
-                    g.fillPath(shBrush2);
+                    var shA1 = (currentShadow / 100.0) * 0.28;
+                    var shA2 = (currentShadow / 100.0) * 0.44;
+                    var shSp = Math.round(3 + (currentShadow / 100.0) * 5);
+                    drawRoundedRectPath(g, winX - 2, winY + shSp, winW + 4, winH + 2, scaledRad + 2);
+                    g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0, 0, 0, shA1]));
+                    drawRoundedRectPath(g, winX + 1, winY + Math.round(shSp * 0.55), winW, winH, scaledRad);
+                    g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0, 0, 0, shA2]));
                 }
 
-                // Window Body
-                var bodyBrush = g.newBrush(g.BrushType.SOLID_COLOR, [0.082, 0.090, 0.114, 1.0]);
                 drawRoundedRectPath(g, winX, winY, winW, winH, scaledRad);
-                g.fillPath(bodyBrush);
+                g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0.082, 0.090, 0.114, 1.0]));
 
-                // Window Titlebar
-                var tbH = Math.min(14, Math.round(winH * 0.20));
-                var tbBrush = g.newBrush(g.BrushType.SOLID_COLOR, [0.130, 0.142, 0.176, 1.0]);
+                var tbH = Math.min(13, Math.round(winH * 0.22));
                 drawRoundedRectPath(g, winX, winY, winW, tbH, Math.min(scaledRad, 4));
-                g.fillPath(tbBrush);
+                g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0.130, 0.142, 0.176, 1.0]));
 
-                // Traffic Light Dots
-                var dotY = winY + Math.max(3, Math.round((tbH - 5) / 2));
-                var dRed = g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 0.37, 0.34, 1.0]);
-                g.ellipsePath(winX + 7, dotY, 5, 5); g.fillPath(dRed);
-                var dYel = g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 0.74, 0.18, 1.0]);
-                g.ellipsePath(winX + 15, dotY, 5, 5); g.fillPath(dYel);
-                var dGrn = g.newBrush(g.BrushType.SOLID_COLOR, [0.16, 0.78, 0.25, 1.0]);
-                g.ellipsePath(winX + 23, dotY, 5, 5); g.fillPath(dGrn);
+                var dotY = winY + Math.max(2, Math.round((tbH - 5) / 2));
+                g.ellipsePath(winX + 7, dotY, 5, 5); g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 0.37, 0.34, 1.0]));
+                g.ellipsePath(winX + 15, dotY, 5, 5); g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 0.74, 0.18, 1.0]));
+                g.ellipsePath(winX + 23, dotY, 5, 5); g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0.16, 0.78, 0.25, 1.0]));
 
-                // Mock App UI Content Inside Window
-                var contentY = winY + tbH + 5;
-                var contentH = Math.max(12, winH - tbH - 10);
+                // Mock App UI Content
+                var contentY = winY + tbH + 4;
+                var contentH = Math.max(10, winH - tbH - 8);
                 var sideW = Math.round(winW * 0.24);
                 var cardBrush = g.newBrush(g.BrushType.SOLID_COLOR, [0.13, 0.145, 0.185, 1.0]);
-                var accentBarBrush = g.newBrush(g.BrushType.SOLID_COLOR, [0.145, 0.388, 0.922, 0.55]);
-                var lineBrush = g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.12]);
-
-                // Sidebar mock
                 g.rectPath(winX + 6, contentY, sideW, contentH);
                 g.fillPath(cardBrush);
-                g.rectPath(winX + 10, contentY + 5, Math.max(8, sideW - 8), 4);
-                g.fillPath(accentBarBrush);
-                if (contentH > 20) {
-                    g.rectPath(winX + 10, contentY + 13, Math.max(6, Math.round((sideW - 8) * 0.75)), 3);
-                    g.fillPath(lineBrush);
-                }
+                g.rectPath(winX + 10, contentY + 4, Math.max(6, sideW - 8), 3);
+                g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0.145, 0.388, 0.922, 0.65]));
 
-                // Main pane mock cards
-                var mainX = winX + sideW + 12;
-                var mainW = Math.max(20, winW - sideW - 18);
+                var mainX = winX + sideW + 10;
+                var mainW = Math.max(18, winW - sideW - 16);
                 g.rectPath(mainX, contentY, mainW, contentH);
                 g.fillPath(cardBrush);
-                var cardGap = 5;
-                var subCardW = Math.max(10, Math.round((mainW - cardGap * 3) / 2));
-                var subCardH = Math.max(8, Math.round(contentH * 0.48));
-                var subCardY = contentY + Math.max(4, Math.round(contentH * 0.38));
-                var subCardB1 = g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.06]);
-                var subCardB2 = g.newBrush(g.BrushType.SOLID_COLOR, [0.145, 0.388, 0.922, 0.22]);
+                var cardGap = 4;
+                var subCardW = Math.max(8, Math.round((mainW - cardGap * 3) / 2));
+                var subCardH = Math.max(6, Math.round(contentH * 0.48));
+                var subCardY = contentY + Math.max(3, Math.round(contentH * 0.36));
                 g.rectPath(mainX + cardGap, subCardY, subCardW, subCardH);
-                g.fillPath(subCardB1);
+                g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.07]));
                 g.rectPath(mainX + cardGap * 2 + subCardW, subCardY, subCardW, subCardH);
-                g.fillPath(subCardB2);
+                g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [0.145, 0.388, 0.922, 0.25]));
 
-                // Crisp Window Border
-                var winBorder = g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.22], 1);
                 drawRoundedRectPath(g, winX, winY, winW, winH, scaledRad);
-                g.strokePath(winBorder);
+                g.strokePath(g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.22], 1));
 
-                // 3. Click Ripple Preview (2-Tier Concentric Circle at Cursor Position!)
-                var curX = Math.round(w * stageClickPos.nx);
-                var curY = Math.round(h * stageClickPos.ny);
+                // 3. 2-Tier Concentric Click Ripple Preview
+                var curX = Math.round(winX + winW * stageClickPos.nx);
+                var curY = Math.round(winY + winH * stageClickPos.ny);
                 var cScale = Math.max(0.6, Math.min(1.8, currentCursorSize / 100.0));
 
                 if (stageClickPos.hasRipple && currentRippleColor !== "none") {
                     var rHex = currentRippleColor.indexOf("#") === 0 ? currentRippleColor : "#2563EB";
                     var rRgb = hexToRgb(rHex);
-                    var innerD = Math.round(16 * cScale);
-                    var outerD = Math.round(34 * cScale);
-
-                    // Tier 1: Soft inner pop disc
-                    var popBrush = g.newBrush(g.BrushType.SOLID_COLOR, [rRgb[0], rRgb[1], rRgb[2], 0.32]);
+                    var innerD = Math.round(14 * cScale);
+                    var outerD = Math.round(30 * cScale);
                     g.ellipsePath(curX - innerD / 2, curY - innerD / 2, innerD, innerD);
-                    g.fillPath(popBrush);
-
-                    // Tier 2: Crisp outer shockwave ring
-                    var ringPen = g.newPen(g.PenType.SOLID_COLOR, [rRgb[0], rRgb[1], rRgb[2], 0.90], 2.0);
+                    g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, [rRgb[0], rRgb[1], rRgb[2], 0.35]));
                     g.ellipsePath(curX - outerD / 2, curY - outerD / 2, outerD, outerD);
-                    g.strokePath(ringPen);
+                    g.strokePath(g.newPen(g.PenType.SOLID_COLOR, [rRgb[0], rRgb[1], rRgb[2], 0.92], 1.8));
                 }
 
-                // 4. Crisp Live Cursor Preview (Styled per Cursor Pack & Scaled by Cursor Size!)
-                var drewCursorPng = false;
+                // 4. Cursor Sprite Preview
+                var drewPng = false;
                 if (previewCursorImg) {
                     try {
-                        var imgSz = Math.round(22 * cScale);
+                        var imgSz = Math.round(20 * cScale);
                         g.drawImage(previewCursorImg, curX - Math.round(imgSz * 0.25), curY - Math.round(imgSz * 0.15), imgSz, imgSz);
-                        drewCursorPng = true;
-                    } catch (eImgC) {
-                        drewCursorPng = false;
-                    }
+                        drewPng = true;
+                    } catch (eImgC) { drewPng = false; }
                 }
-                if (!drewCursorPng) {
+                if (!drewPng) {
                     var cs = cScale;
                     g.newPath();
                     if (currentCursorKey === "custom") {
-                        // Figma sharp minimal pointer
                         g.moveTo(curX, curY);
                         g.lineTo(curX + 5.5 * cs, curY + 15.5 * cs);
                         g.lineTo(curX + 8.0 * cs, curY + 9.5 * cs);
                         g.lineTo(curX + 14.5 * cs, curY + 7.2 * cs);
                         g.closePath();
                     } else {
-                        // macOS / Windows 11 pointer silhouette
                         g.moveTo(curX, curY);
                         g.lineTo(curX, curY + 15 * cs);
                         g.lineTo(curX + 3.8 * cs, curY + 11.6 * cs);
@@ -2458,91 +2620,94 @@
                         g.closePath();
                     }
                     var isDarkFill = (currentCursorKey === "macos" || currentCursorKey === "custom");
-                    var cFill = g.newBrush(g.BrushType.SOLID_COLOR, isDarkFill ? [0.06, 0.07, 0.09, 1.0] : [1.0, 1.0, 1.0, 1.0]);
-                    g.fillPath(cFill);
-                    var cStroke = g.newPen(g.PenType.SOLID_COLOR, isDarkFill ? [1.0, 1.0, 1.0, 1.0] : [0.08, 0.09, 0.12, 1.0], 1.4);
-                    g.strokePath(cStroke);
+                    g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, isDarkFill ? [0.06, 0.07, 0.09, 1.0] : [1.0, 1.0, 1.0, 1.0]));
+                    g.strokePath(g.newPen(g.PenType.SOLID_COLOR, isDarkFill ? [1.0, 1.0, 1.0, 1.0] : [0.08, 0.09, 0.12, 1.0], 1.4));
                 }
 
-                // 5. Top HUD Badges (Preset Summary + Zoom Mode Badge)
-                var hudBg = g.newBrush(g.BrushType.SOLID_COLOR, [0.04, 0.05, 0.07, 0.65]);
-                var hudPen = g.newPen(g.PenType.SOLID_COLOR, [0.92, 0.94, 0.98, 1.0], 1);
-                var zPen = g.newPen(g.PenType.SOLID_COLOR, [0.42, 0.72, 1.0, 1.0], 1);
+                // 5. Cleanly Aligned Top Preview Header Pills (Never Overlap or Clip!)
+                var pillY = 5;
+                var pillH = 18;
+                var hudBg = g.newBrush(g.BrushType.SOLID_COLOR, [0.04, 0.05, 0.08, 0.72]);
 
-                var leftLabel = (CURSOR_MANIFEST[currentCursorKey] ? CURSOR_MANIFEST[currentCursorKey].id.toUpperCase() : "TAHOE") + "  |  Click to preview";
-                drawRoundedRectPath(g, 6, 6, Math.min(152, Math.round(w * 0.56)), 16, 4);
+                var zBadgeStr = (currentZoomMode === "static") ? "1.00x Static" : (currentZoomScale.toFixed(2) + "x " + (currentZoomMode === "continuous" ? "Follow" : "Auto"));
+                var zm = g.measureString(zBadgeStr, activeFont);
+                var zBoxW = Math.min(Math.round(w * 0.44), Math.round(zm[0]) + 14);
+                var zBoxX = w - zBoxW - 6;
+
+                var leftLabel = (w >= 280) ? ("Preview: " + wpMeta.label) : "Preview";
+                var lm = g.measureString(leftLabel, activeFont);
+                var maxLeftW = Math.max(54, zBoxX - 12);
+                var lBoxW = Math.min(maxLeftW, Math.round(lm[0]) + 14);
+                if (lm[0] + 14 > maxLeftW) {
+                    leftLabel = "Preview";
+                    lm = g.measureString(leftLabel, activeFont);
+                    lBoxW = Math.min(maxLeftW, Math.round(lm[0]) + 14);
+                }
+
+                drawRoundedRectPath(g, 6, pillY, lBoxW, pillH, 4);
                 g.fillPath(hudBg);
-                g.drawString(leftLabel, hudPen, 11, 8, hudFont);
+                var lTextY = pillY + Math.max(1, Math.round((pillH - lm[1]) / 2));
+                g.drawString(leftLabel, g.newPen(g.PenType.SOLID_COLOR, [0.95, 0.96, 1.0, 1.0], 1), 13, lTextY, activeFont);
 
-                var zBadgeStr = (currentZoomMode === "static")
-                    ? "1.00x Static"
-                    : (currentZoomScale.toFixed(2) + "x " + (currentZoomMode === "continuous" ? "Follow" : "Auto"));
-                var zBoxW = 82;
-                drawRoundedRectPath(g, w - zBoxW - 6, 6, zBoxW, 16, 4);
+                drawRoundedRectPath(g, zBoxX, pillY, zBoxW, pillH, 4);
                 g.fillPath(hudBg);
-                g.drawString(zBadgeStr, zPen, w - zBoxW - 1, 8, hudFont);
+                var zTextX = zBoxX + Math.max(4, Math.round((zBoxW - zm[0]) / 2));
+                var zTextY = pillY + Math.max(1, Math.round((pillH - zm[1]) / 2));
+                g.drawString(zBadgeStr, g.newPen(g.PenType.SOLID_COLOR, [0.42, 0.72, 1.0, 1.0], 1), zTextX, zTextY, activeFont);
 
-                // Outer frame border
-                var stageBorder = g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.14], 1);
                 g.rectPath(0, 0, w - 1, h - 1);
-                g.strokePath(stageBorder);
+                g.strokePath(g.newPen(g.PenType.SOLID_COLOR, [1.0, 1.0, 1.0, 0.16], 1));
             } catch (eStage) {}
         };
 
-        previewStage.addEventListener("mousedown", function (e) {
-            var w = (previewStage.size && previewStage.size[0] > 10) ? previewStage.size[0] : 300;
-            var h = (previewStage.size && previewStage.size[1] > 10) ? previewStage.size[1] : 132;
-            stageClickPos.nx = Math.max(0.12, Math.min(0.88, e.clientX / w));
-            stageClickPos.ny = Math.max(0.22, Math.min(0.85, e.clientY / h));
+        previewCanvas.onClick = function () {
+            stageClickPos.nx = 0.25 + Math.random() * 0.50;
+            stageClickPos.ny = 0.35 + Math.random() * 0.45;
             stageClickPos.hasRipple = true;
             redrawPreview();
-        });
+        };
 
         // ---------------------------------------------------------------------
-        // 3. 3-TAB SEGMENTED NAVIGATION BAR (Setup | Cursor | Frame)
-        // Custom-drawn Cobalt-accented tab pills so active tab is unmistakably clear
+        // BAND 3: 3-TAB BAR (Owner-Drawn Pills — Cleanly Centered, Zero Clipping!)
         // ---------------------------------------------------------------------
-        var tabBar = win.add("group");
-        tabBar.orientation = "row";
-        tabBar.alignment = ["fill", "top"];
-        tabBar.spacing = 4;
-        tabBar.margins = [0, 2, 0, 2];
+        var tabBar = win.add("group", [10, 174, 340, 202]);
+        tabBar.margins = 0;
+        tabBar.spacing = 0;
 
         var tabButtons = {};
+        var tabOrder = ["setup", "cursor", "frame"];
         function createTabPill(id, label) {
-            var pill = tabBar.add("group");
-            pill.alignment = ["fill", "center"];
-            pill.preferredSize = [80, 26];
-            pill.minimumSize = [56, 26];
-            pill._tabId = id;
-            pill._label = label;
-            pill.onDraw = function () {
+            // Pass "" as native text so AE never renders overlapping native text behind onDraw
+            var btn = tabBar.add("button", [0, 0, 100, 28], "");
+            btn._tabId = id;
+            btn._label = label;
+            btn.onDraw = function () {
                 try {
                     var g = this.graphics;
-                    var w = (this.size && this.size[0] > 10) ? this.size[0] : 84;
-                    var h = (this.size && this.size[1] > 10) ? this.size[1] : 26;
+                    var w = (this.size && this.size[0] > 10) ? this.size[0] : (this.bounds ? (this.bounds[2] - this.bounds[0]) : 100);
+                    var h = (this.size && this.size[1] > 10) ? this.size[1] : (this.bounds ? (this.bounds[3] - this.bounds[1]) : 28);
                     var isAct = (activeTab === this._tabId);
-                    var fillCol = isAct ? [0.145, 0.388, 0.922, 1.0] : [0.155, 0.165, 0.195, 1.0];
-                    var borderCol = isAct ? [0.35, 0.58, 1.0, 1.0] : [1.0, 1.0, 1.0, 0.12];
-                    var txtCol = isAct ? [1.0, 1.0, 1.0, 1.0] : [0.72, 0.75, 0.82, 1.0];
+                    var fillCol = isAct ? [0.145, 0.388, 0.922, 1.0] : [0.165, 0.175, 0.205, 1.0];
+                    var borderCol = isAct ? [0.40, 0.65, 1.0, 1.0] : [1.0, 1.0, 1.0, 0.14];
+                    var txtCol = isAct ? [1.0, 1.0, 1.0, 1.0] : [0.80, 0.83, 0.90, 1.0];
 
                     drawRoundedRectPath(g, 0, 0, w - 1, h - 1, 5);
                     g.fillPath(g.newBrush(g.BrushType.SOLID_COLOR, fillCol));
                     drawRoundedRectPath(g, 0, 0, w - 1, h - 1, 5);
                     g.strokePath(g.newPen(g.PenType.SOLID_COLOR, borderCol, 1));
 
-                    var tFont = ScriptUI.newFont("Verdana", isAct ? "Bold" : "Regular", 10);
-                    var m = g.measureString(this._label, tFont);
-                    var tx = Math.max(4, Math.round((w - m[0]) / 2));
-                    var ty = Math.max(4, Math.round((h - m[1]) / 2));
-                    g.drawString(this._label, g.newPen(g.PenType.SOLID_COLOR, txtCol, 1), tx, ty, tFont);
+                    var fnt = (isAct ? tabFontBold : tabFontReg) || g.font;
+                    var m = g.measureString(this._label, fnt);
+                    var tx = Math.max(2, Math.round((w - m[0]) / 2));
+                    var ty = Math.max(2, Math.round((h - m[1]) / 2));
+                    g.drawString(this._label, g.newPen(g.PenType.SOLID_COLOR, txtCol, 1), tx, ty, fnt);
                 } catch (ePill) {}
             };
-            pill.addEventListener("mousedown", function () {
+            btn.onClick = function () {
                 selectTab(id);
-            });
-            tabButtons[id] = pill;
-            return pill;
+            };
+            tabButtons[id] = btn;
+            return btn;
         }
 
         createTabPill("setup", "Setup");
@@ -2550,45 +2715,28 @@
         createTabPill("frame", "Frame");
 
         // ---------------------------------------------------------------------
-        // 4. SCROLLABLE STACKED TAB BODY (Fills middle space; NEVER pushes footer off!)
-        // CRITICAL FIX: tabContainer.orientation = "stack" eliminates blank space!
+        // BAND 4: SCROLLABLE CLIPPED BODY VIEWPORT
         // ---------------------------------------------------------------------
-        var bodyHost = win.add("group");
-        bodyHost.orientation = "row";
-        bodyHost.alignment = ["fill", "fill"];
-        bodyHost.alignChildren = ["fill", "fill"];
-        bodyHost.spacing = 4;
+        var bodyHost = win.add("group", [10, 208, 340, 600]);
         bodyHost.margins = 0;
+        bodyHost.spacing = 0;
 
-        var scrollViewport = bodyHost.add("group");
-        scrollViewport.orientation = "stack";
-        scrollViewport.alignment = ["fill", "fill"];
-        scrollViewport.alignChildren = ["fill", "top"];
+        var scrollViewport = bodyHost.add("group", [0, 0, 314, 392]);
         scrollViewport.margins = 0;
+        scrollViewport.spacing = 0;
 
-        var tabContainer = scrollViewport.add("group");
-        tabContainer.orientation = "stack"; // <-- FIX: All 3 tabs share exact top origin!
-        tabContainer.alignment = ["fill", "top"];
-        tabContainer.alignChildren = ["fill", "top"];
-        tabContainer.spacing = 0;
-        tabContainer.margins = 0;
-
-        var vScrollBar = bodyHost.add("scrollbar", undefined, 0, 0, 100);
-        vScrollBar.alignment = ["right", "fill"];
-        vScrollBar.preferredSize.width = 14;
+        var vScrollBar = bodyHost.add("scrollbar", [316, 0, 330, 392], 0, 0, 100);
         vScrollBar.visible = false;
 
         // =====================================================================
-        // TAB 1: SETUP PANEL
+        // SECTION 1: SETUP CONTROLS
         // =====================================================================
-        var tabSetup = tabContainer.add("group");
+        var tabSetup = scrollViewport.add("group", [0, 0, 314, 420]);
         tabSetup.orientation = "column";
-        tabSetup.alignment = ["fill", "top"];
         tabSetup.alignChildren = ["fill", "top"];
-        tabSetup.spacing = 7;
-        tabSetup.margins = [0, 4, 0, 4];
+        tabSetup.spacing = 6;
+        tabSetup.margins = [0, 2, 0, 8];
 
-        // Capture Source Card
         var srcCard = tabSetup.add("panel", undefined, undefined, { borderStyle: "gray" });
         srcCard.orientation = "column";
         srcCard.alignChildren = ["fill", "top"];
@@ -2597,7 +2745,6 @@
 
         var srcTitle = srcCard.add("statictext", undefined, "Capture Source");
         try { srcTitle.graphics.font = ScriptUI.newFont("Verdana", "Bold", 10); } catch (e) {}
-        try { srcTitle.graphics.foregroundColor = srcTitle.graphics.newPen(srcTitle.graphics.PenType.SOLID_COLOR, [0.78, 0.82, 0.90, 1], 1); } catch (e) {}
 
         var vidRow = srcCard.add("group");
         vidRow.orientation = "row";
@@ -2607,22 +2754,26 @@
         var videoPathInput = vidRow.add("edittext", undefined, "");
         videoPathInput.alignment = ["fill", "center"];
         videoPathInput.preferredSize.height = 24;
+        videoPathInput.minimumSize = [60, 24];
 
         var btnBrowseVid = vidRow.add("button", undefined, "Browse...");
         btnBrowseVid.preferredSize = [68, 24];
+        btnBrowseVid.minimumSize = [58, 24];
 
         var syncBadgeRow = srcCard.add("group");
         syncBadgeRow.orientation = "row";
         syncBadgeRow.alignChildren = ["left", "center"];
         syncBadgeRow.spacing = 5;
 
-        var syncText = syncBadgeRow.add("statictext", undefined, "Auto-pairs companion .cursor.json");
+        var syncText = syncBadgeRow.add("statictext", undefined, "Auto-pairs .cursor.json");
         syncText.alignment = ["fill", "center"];
+        syncText.minimumSize = [50, 16];
         try { syncText.graphics.font = ScriptUI.newFont("Verdana", "Regular", 9); } catch (e) {}
         try { syncText.graphics.foregroundColor = syncText.graphics.newPen(syncText.graphics.PenType.SOLID_COLOR, [0.35, 0.85, 0.58, 1], 1); } catch (e) {}
 
         var btnRelinkJson = syncBadgeRow.add("button", undefined, "Relink");
         btnRelinkJson.preferredSize = [52, 20];
+        btnRelinkJson.minimumSize = [46, 20];
 
         btnBrowseVid.onClick = function () {
             var f = File.openDialog("Select Screen Recording Video", "Video Files:*.mp4;*.mov;*.webm;*.mkv;*.*");
@@ -2671,7 +2822,7 @@
 
         var zoomRadioRow = zoomModeCard.add("group");
         zoomRadioRow.orientation = "row";
-        zoomRadioRow.spacing = 8;
+        zoomRadioRow.spacing = 6;
 
         var radAutoZoom = zoomRadioRow.add("radiobutton", undefined, "Auto Zoom");
         var radFollow = zoomRadioRow.add("radiobutton", undefined, "Follow");
@@ -2687,20 +2838,19 @@
         zDepthRow.spacing = 6;
 
         var zDepthLbl = zDepthRow.add("statictext", undefined, "Zoom Depth:");
-        zDepthLbl.preferredSize.width = 76;
+        zDepthLbl.preferredSize.width = 74;
 
         var zDepthSlider = zDepthRow.add("slider", undefined, Math.round(currentZoomScale * 100), 120, 320);
         zDepthSlider.alignment = ["fill", "center"];
-        zDepthSlider.enabled = (currentZoomMode !== "static");
+        zDepthSlider.minimumSize = [40, 18];
 
         var zDepthValTxt = zDepthRow.add("statictext", undefined, currentZoomScale.toFixed(2) + "x");
-        zDepthValTxt.preferredSize.width = 44;
+        zDepthValTxt.preferredSize.width = 40;
 
         function onZoomModeChanged() {
             if (radFollow.value) currentZoomMode = "continuous";
             else if (radStatic.value) currentZoomMode = "static";
             else currentZoomMode = "auto-cluster";
-            zDepthSlider.enabled = (currentZoomMode !== "static");
             savePref("selectedZoomMode", currentZoomMode);
             redrawPreview();
         }
@@ -2726,7 +2876,7 @@
 
         var feelRadioRow = feelGrp.add("group");
         feelRadioRow.orientation = "row";
-        feelRadioRow.spacing = 6;
+        feelRadioRow.spacing = 5;
 
         var radNatural = feelRadioRow.add("radiobutton", undefined, "Natural");
         var radSnappy = feelRadioRow.add("radiobutton", undefined, "Snappy");
@@ -2737,7 +2887,45 @@
         radSilky.value = (currentMotionFeel === "silky");
         radRaw.value = (currentMotionFeel === "raw");
 
-        // Fine-Tune Physics Accordion (Properly Collapses Height!)
+        // Independent 4-Toggle Smart Automation Card (Typing & Scroll)
+        var autoCard = tabSetup.add("panel", undefined, undefined, { borderStyle: "gray" });
+        autoCard.orientation = "column";
+        autoCard.alignChildren = ["fill", "top"];
+        autoCard.spacing = 4;
+        autoCard.margins = 8;
+
+        var autoTitle = autoCard.add("statictext", undefined, "Typing & Scroll Automation");
+        try { autoTitle.graphics.font = ScriptUI.newFont("Verdana", "Bold", 10); } catch (e) {}
+
+        var chkTypingSpeedup = autoCard.add("checkbox", undefined, "Typing 2x Speed-Up (Time Remap)");
+        chkTypingSpeedup.value = optTypingSpeedup;
+        chkTypingSpeedup.onClick = function () {
+            optTypingSpeedup = chkTypingSpeedup.value;
+            savePref("enableTypingSpeedup", optTypingSpeedup);
+        };
+
+        var chkTypingZoom = autoCard.add("checkbox", undefined, "Typing Auto-Zoom & Camera Follow");
+        chkTypingZoom.value = optTypingZoom;
+        chkTypingZoom.onClick = function () {
+            optTypingZoom = chkTypingZoom.value;
+            savePref("enableTypingZoom", optTypingZoom);
+        };
+
+        var chkScrollSpeedup = autoCard.add("checkbox", undefined, "Scroll 2x Speed-Up (Time Remap)");
+        chkScrollSpeedup.value = optScrollSpeedup;
+        chkScrollSpeedup.onClick = function () {
+            optScrollSpeedup = chkScrollSpeedup.value;
+            savePref("enableScrollSpeedup", optScrollSpeedup);
+        };
+
+        var chkScrollZoom = autoCard.add("checkbox", undefined, "Scroll Auto-Zoom (Smooth Recovery)");
+        chkScrollZoom.value = optScrollZoom;
+        chkScrollZoom.onClick = function () {
+            optScrollZoom = chkScrollZoom.value;
+            savePref("enableScrollZoom", optScrollZoom);
+        };
+
+        // Fine-Tune Physics & Sync Accordion
         var accExpanded = false;
         var accBtn = tabSetup.add("button", undefined, "Fine-Tune Physics & Sync  [+]");
         accBtn.alignment = ["fill", "center"];
@@ -2753,25 +2941,24 @@
 
         var chkAutoStates = accBody.add("checkbox", undefined, "Auto Cursor States (I-beam, pointer, hand)");
         chkAutoStates.value = true;
-        var chkVelocitySway = accBody.add("checkbox", undefined, "Velocity Tilt Sway (Dynamic angle)");
+        var chkVelocitySway = accBody.add("checkbox", undefined, "Velocity Tilt Sway (Dynamic cursor rotation)");
         chkVelocitySway.value = true;
         var chkClickBounce = accBody.add("checkbox", undefined, "Click Bounce (84% press compression)");
         chkClickBounce.value = true;
         var chkMotionBlur = accBody.add("checkbox", undefined, "Motion Blur (AE composition shutter)");
         chkMotionBlur.value = true;
-        var chkTypingSpeedup = accBody.add("checkbox", undefined, "Typing Speed-Up (2.0x playback & zoom)");
-        chkTypingSpeedup.value = true;
 
         var syncOffRow = accBody.add("group");
         syncOffRow.orientation = "row";
         syncOffRow.alignChildren = ["fill", "center"];
         syncOffRow.spacing = 6;
         var syncOffLbl = syncOffRow.add("statictext", undefined, "Sync Offset:");
-        syncOffLbl.preferredSize.width = 72;
+        syncOffLbl.preferredSize.width = 70;
         var syncOffSlider = syncOffRow.add("slider", undefined, currentSyncOffsetMs, -1000, 1000);
         syncOffSlider.alignment = ["fill", "center"];
+        syncOffSlider.minimumSize = [40, 18];
         var syncOffVal = syncOffRow.add("statictext", undefined, currentSyncOffsetMs + "ms");
-        syncOffVal.preferredSize.width = 48;
+        syncOffVal.preferredSize.width = 44;
         syncOffSlider.onChanging = function () {
             currentSyncOffsetMs = Math.round(syncOffSlider.value / 10) * 10;
             syncOffVal.text = currentSyncOffsetMs + "ms";
@@ -2783,18 +2970,17 @@
             accBody.visible = accExpanded;
             accBody.maximumSize.height = accExpanded ? 1000 : 0;
             accBtn.text = accExpanded ? "Fine-Tune Physics & Sync  [-]" : "Fine-Tune Physics & Sync  [+]";
-            updateScrollLayout();
+            layoutResponsive();
         };
 
         // =====================================================================
-        // TAB 2: CURSOR PANEL
+        // SECTION 2: CURSOR CONTROLS
         // =====================================================================
-        var tabCursor = tabContainer.add("group");
+        var tabCursor = scrollViewport.add("group", [0, 0, 314, 210]);
         tabCursor.orientation = "column";
-        tabCursor.alignment = ["fill", "top"];
         tabCursor.alignChildren = ["fill", "top"];
         tabCursor.spacing = 8;
-        tabCursor.margins = [0, 4, 0, 4];
+        tabCursor.margins = [0, 2, 0, 8];
         tabCursor.visible = false;
 
         var cStyleLbl = tabCursor.add("statictext", undefined, "Cursor Pack (10 Multi-States)");
@@ -2808,7 +2994,6 @@
             if (cursorKeys[ciIdx] === currentCursorKey) { initCursorIdx = ciIdx; break; }
         }
         cursorDropdown.selection = initCursorIdx;
-
         cursorDropdown.onChange = function () {
             var sel = cursorDropdown.selection ? cursorDropdown.selection.index : 0;
             currentCursorKey = cursorKeys[sel];
@@ -2817,21 +3002,17 @@
             redrawPreview();
         };
 
-        // Cursor Size Slider
         var cSizeRow = tabCursor.add("group");
         cSizeRow.orientation = "row";
         cSizeRow.alignChildren = ["fill", "center"];
         cSizeRow.spacing = 6;
-
         var cSizeLbl = cSizeRow.add("statictext", undefined, "Cursor Size:");
-        cSizeLbl.preferredSize.width = 76;
-
+        cSizeLbl.preferredSize.width = 74;
         var cSizeSlider = cSizeRow.add("slider", undefined, currentCursorSize, 50, 200);
         cSizeSlider.alignment = ["fill", "center"];
-
+        cSizeSlider.minimumSize = [40, 18];
         var cSizeValTxt = cSizeRow.add("statictext", undefined, currentCursorSize + "%");
-        cSizeValTxt.preferredSize.width = 44;
-
+        cSizeValTxt.preferredSize.width = 40;
         cSizeSlider.onChanging = function () {
             currentCursorSize = Math.round(cSizeSlider.value);
             cSizeValTxt.text = currentCursorSize + "%";
@@ -2839,7 +3020,6 @@
             redrawPreview();
         };
 
-        // Click Ripple Color Swatches
         var ripHeaderRow = tabCursor.add("group");
         ripHeaderRow.orientation = "row";
         ripHeaderRow.alignChildren = ["left", "center"];
@@ -2849,19 +3029,23 @@
         ripValLbl.alignment = ["right", "center"];
         try { ripValLbl.graphics.foregroundColor = ripValLbl.graphics.newPen(ripValLbl.graphics.PenType.SOLID_COLOR, [0.42, 0.72, 1.0, 1.0], 1); } catch (e) {}
 
-        var ripSwatchRow = tabCursor.add("group");
-        ripSwatchRow.orientation = "row";
-        ripSwatchRow.alignment = ["fill", "top"];
-        ripSwatchRow.spacing = 4;
-
-        var btnRipCobalt = ripSwatchRow.add("button", undefined, "Cobalt");
-        var btnRipWhite = ripSwatchRow.add("button", undefined, "White");
-        var btnRipEmerald = ripSwatchRow.add("button", undefined, "Emerald");
-        var btnRipAmber = ripSwatchRow.add("button", undefined, "Amber");
-        var btnRipOff = ripSwatchRow.add("button", undefined, "Off");
+        var ripSwatchRow1 = tabCursor.add("group");
+        ripSwatchRow1.orientation = "row";
+        ripSwatchRow1.alignment = ["fill", "top"];
+        ripSwatchRow1.spacing = 4;
+        var btnRipCobalt = ripSwatchRow1.add("button", undefined, "Cobalt");
+        var btnRipWhite = ripSwatchRow1.add("button", undefined, "White");
+        var btnRipEmerald = ripSwatchRow1.add("button", undefined, "Emerald");
         btnRipCobalt.alignment = ["fill", "center"];
         btnRipWhite.alignment = ["fill", "center"];
         btnRipEmerald.alignment = ["fill", "center"];
+
+        var ripSwatchRow2 = tabCursor.add("group");
+        ripSwatchRow2.orientation = "row";
+        ripSwatchRow2.alignment = ["fill", "top"];
+        ripSwatchRow2.spacing = 4;
+        var btnRipAmber = ripSwatchRow2.add("button", undefined, "Amber");
+        var btnRipOff = ripSwatchRow2.add("button", undefined, "Off");
         btnRipAmber.alignment = ["fill", "center"];
         btnRipOff.alignment = ["fill", "center"];
 
@@ -2879,24 +3063,29 @@
         btnRipOff.onClick = function () { setRippleColor("none"); };
 
         // =====================================================================
-        // TAB 3: FRAME PANEL
+        // SECTION 3: FRAME & BACKDROP CONTROLS (Both BG Options Wired Live!)
         // =====================================================================
-        var tabFrame = tabContainer.add("group");
+        var tabFrame = scrollViewport.add("group", [0, 0, 314, 270]);
         tabFrame.orientation = "column";
-        tabFrame.alignment = ["fill", "top"];
         tabFrame.alignChildren = ["fill", "top"];
-        tabFrame.spacing = 8;
-        tabFrame.margins = [0, 4, 0, 4];
+        tabFrame.spacing = 7;
+        tabFrame.margins = [0, 2, 0, 8];
         tabFrame.visible = false;
 
-        var bgSelectLbl = tabFrame.add("statictext", undefined, "Backdrop Wallpaper");
+        var bgHeaderRow = tabFrame.add("group");
+        bgHeaderRow.orientation = "row";
+        bgHeaderRow.alignChildren = ["left", "center"];
+        var bgSelectLbl = bgHeaderRow.add("statictext", undefined, "Backdrop Wallpaper");
         try { bgSelectLbl.graphics.font = ScriptUI.newFont("Verdana", "Bold", 10); } catch (e) {}
+        var bgActiveValLbl = bgHeaderRow.add("statictext", undefined, getWallpaperMeta(currentBgKey).label);
+        bgActiveValLbl.alignment = ["right", "center"];
+        try { bgActiveValLbl.graphics.foregroundColor = bgActiveValLbl.graphics.newPen(bgActiveValLbl.graphics.PenType.SOLID_COLOR, [0.42, 0.72, 1.0, 1.0], 1); } catch (e) {}
 
+        // BG Option 1: Quick Backdrop Preset Tiles
         var tileRow1 = tabFrame.add("group");
         tileRow1.orientation = "row";
         tileRow1.alignment = ["fill", "top"];
         tileRow1.spacing = 4;
-
         var btnBgTahoe = tileRow1.add("button", undefined, "Tahoe Light");
         var btnBgMidnight = tileRow1.add("button", undefined, "Midnight");
         var btnBgAzure = tileRow1.add("button", undefined, "Azure");
@@ -2908,7 +3097,6 @@
         tileRow2.orientation = "row";
         tileRow2.alignment = ["fill", "top"];
         tileRow2.spacing = 4;
-
         var btnBgCherry = tileRow2.add("button", undefined, "Cherry Pop");
         var btnBgStudio = tileRow2.add("button", undefined, "Dark Studio");
         var btnBgNone = tileRow2.add("button", undefined, "None");
@@ -2916,62 +3104,67 @@
         btnBgStudio.alignment = ["fill", "center"];
         btnBgNone.alignment = ["fill", "center"];
 
-        // Full Wallpapers Dropdown (Exact match to user's assets/wallpapers/)
+        // BG Option 2: Full Recordly Wallpapers Dropdown
         var bgItemsList = [];
         var bgKeysList = [];
         var initBgIdx = 0;
         for (var wp = 0; wp < RECORDLY_WALLPAPERS.length; wp++) {
             bgItemsList.push(RECORDLY_WALLPAPERS[wp].label);
             bgKeysList.push(RECORDLY_WALLPAPERS[wp].filename);
-            if (RECORDLY_WALLPAPERS[wp].filename === currentBgKey) {
+            if (RECORDLY_WALLPAPERS[wp].filename === currentBgKey || RECORDLY_WALLPAPERS[wp].id === currentBgKey) {
                 initBgIdx = wp;
             }
         }
         var bgDropdown = tabFrame.add("dropdownlist", undefined, bgItemsList);
         bgDropdown.selection = initBgIdx;
 
-        function setBackdropKey(key) {
-            currentBgKey = key;
-            for (var bi = 0; bi < bgKeysList.length; bi++) {
-                if (bgKeysList[bi] === key) {
-                    bgDropdown.selection = bi;
-                    break;
+        function setBackdropKey(key, fromDropdown) {
+            if (isSyncingBg) return;
+            isSyncingBg = true;
+            try {
+                currentBgKey = key;
+                bgActiveValLbl.text = getWallpaperMeta(currentBgKey).label;
+                if (!fromDropdown) {
+                    for (var bi = 0; bi < bgKeysList.length; bi++) {
+                        if (bgKeysList[bi] === key) {
+                            bgDropdown.selection = bi;
+                            break;
+                        }
+                    }
                 }
+                savePref("selectedBgKey", currentBgKey);
+                refreshPreviewAssets();
+                previewCanvas.notify("onDraw");
+                try { win.update(); } catch (eUp) {}
+            } finally {
+                isSyncingBg = false;
             }
-            savePref("selectedBgKey", currentBgKey);
-            redrawPreview();
         }
 
-        btnBgTahoe.onClick = function () { setBackdropKey("tahoe-light.jpg"); };
-        btnBgMidnight.onClick = function () { setBackdropKey("midnight-8.jpg"); };
-        btnBgAzure.onClick = function () { setBackdropKey("sequoia-blue.jpg"); };
-        btnBgCherry.onClick = function () { setBackdropKey("cherrypop.jpg"); };
-        btnBgStudio.onClick = function () { setBackdropKey("dark-studio"); };
-        btnBgNone.onClick = function () { setBackdropKey("none"); };
+        btnBgTahoe.onClick = function () { setBackdropKey("tahoe-light.jpg", false); };
+        btnBgMidnight.onClick = function () { setBackdropKey("midnight-8.jpg", false); };
+        btnBgAzure.onClick = function () { setBackdropKey("sequoia-blue.jpg", false); };
+        btnBgCherry.onClick = function () { setBackdropKey("cherrypop.jpg", false); };
+        btnBgStudio.onClick = function () { setBackdropKey("dark-studio", false); };
+        btnBgNone.onClick = function () { setBackdropKey("none", false); };
 
         bgDropdown.onChange = function () {
             if (bgDropdown.selection) {
-                currentBgKey = bgKeysList[bgDropdown.selection.index];
-                savePref("selectedBgKey", currentBgKey);
-                redrawPreview();
+                setBackdropKey(bgKeysList[bgDropdown.selection.index], true);
             }
         };
 
-        // Corner Radius Slider
         var radRow = tabFrame.add("group");
         radRow.orientation = "row";
         radRow.alignChildren = ["fill", "center"];
         radRow.spacing = 6;
-
         var radLbl = radRow.add("statictext", undefined, "Corner Radius:");
-        radLbl.preferredSize.width = 86;
-
+        radLbl.preferredSize.width = 84;
         var radSlider = radRow.add("slider", undefined, currentCornerRadius, 0, 48);
         radSlider.alignment = ["fill", "center"];
-
+        radSlider.minimumSize = [40, 18];
         var radValTxt = radRow.add("statictext", undefined, currentCornerRadius + "px");
-        radValTxt.preferredSize.width = 40;
-
+        radValTxt.preferredSize.width = 38;
         radSlider.onChanging = function () {
             currentCornerRadius = Math.round(radSlider.value);
             radValTxt.text = currentCornerRadius + "px";
@@ -2979,21 +3172,17 @@
             redrawPreview();
         };
 
-        // Window Margin Slider
         var marginRow = tabFrame.add("group");
         marginRow.orientation = "row";
         marginRow.alignChildren = ["fill", "center"];
         marginRow.spacing = 6;
-
         var marginLbl = marginRow.add("statictext", undefined, "Window Margin:");
-        marginLbl.preferredSize.width = 86;
-
+        marginLbl.preferredSize.width = 84;
         var marginSlider = marginRow.add("slider", undefined, currentMargin, 0, 25);
         marginSlider.alignment = ["fill", "center"];
-
+        marginSlider.minimumSize = [40, 18];
         var marginValTxt = marginRow.add("statictext", undefined, currentMargin + "%");
-        marginValTxt.preferredSize.width = 40;
-
+        marginValTxt.preferredSize.width = 38;
         marginSlider.onChanging = function () {
             currentMargin = Math.round(marginSlider.value);
             marginValTxt.text = currentMargin + "%";
@@ -3001,21 +3190,17 @@
             redrawPreview();
         };
 
-        // Shadow Intensity Slider
         var shRow = tabFrame.add("group");
         shRow.orientation = "row";
         shRow.alignChildren = ["fill", "center"];
         shRow.spacing = 6;
-
         var shLbl = shRow.add("statictext", undefined, "Drop Shadow:");
-        shLbl.preferredSize.width = 86;
-
+        shLbl.preferredSize.width = 84;
         var shSlider = shRow.add("slider", undefined, currentShadow, 0, 100);
         shSlider.alignment = ["fill", "center"];
-
+        shSlider.minimumSize = [40, 18];
         var shValTxt = shRow.add("statictext", undefined, currentShadow + "%");
-        shValTxt.preferredSize.width = 40;
-
+        shValTxt.preferredSize.width = 38;
         shSlider.onChanging = function () {
             currentShadow = Math.round(shSlider.value);
             shValTxt.text = currentShadow + "%";
@@ -3023,84 +3208,181 @@
             redrawPreview();
         };
 
-        // =====================================================================
-        // 5. STICKY BOTTOM ACTION BAR (ALWAYS FLOATS AT BOTTOM AT EVERY HEIGHT!)
-        // =====================================================================
-        var bottomBar = win.add("group");
-        bottomBar.orientation = "row";
-        bottomBar.alignment = ["fill", "bottom"];
-        bottomBar.alignChildren = ["fill", "center"];
-        bottomBar.spacing = 6;
-        bottomBar.margins = [0, 6, 0, 0];
+        // ---------------------------------------------------------------------
+        // BAND 5: PINNED BOTTOM ACTION BAR (Generate Rig ALWAYS Visible!)
+        // ---------------------------------------------------------------------
+        var bottomBar = win.add("group", [10, 606, 340, 642]);
+        bottomBar.margins = 0;
+        bottomBar.spacing = 0;
 
-        var btnBuild = bottomBar.add("button", undefined, "Build TraceMotion Rig");
-        btnBuild.alignment = ["fill", "center"];
-        btnBuild.preferredSize.height = 34;
-
-        var btnUpdateRig = bottomBar.add("button", undefined, "Update");
-        btnUpdateRig.preferredSize = [62, 34];
+        var btnBuild = bottomBar.add("button", [0, 0, 200, 34], "Generate Rig");
+        var btnUpdateRig = bottomBar.add("button", [206, 0, 266, 34], "Update");
         btnUpdateRig.helpTip = "Update sliders on the currently active TraceMotion composition";
-
-        var btnReset = bottomBar.add("button", undefined, "Reset");
-        btnReset.preferredSize = [54, 34];
+        var btnReset = bottomBar.add("button", [272, 0, 330, 34], "Reset");
         btnReset.helpTip = "Reset all parameters to Recordly defaults";
 
         // =====================================================================
-        // TAB SWITCHING & SCROLLABLE VIEWPORT LAYOUT ENGINE
+        // FULL-RESPONSIVENESS PIXEL-EXACT LAYOUT ENGINE (EVERY WIDTH & HEIGHT)
         // =====================================================================
-        function getActiveTabGroup() {
-            if (activeTab === "cursor") return tabCursor;
-            if (activeTab === "frame") return tabFrame;
-            return tabSetup;
+        function measureSectionHeight(grp, targetW, fallbackH) {
+            try {
+                grp.bounds = [0, 0, targetW, fallbackH];
+                grp.layout.layout(true);
+                if (grp.preferredSize && grp.preferredSize[1] > 24) {
+                    return grp.preferredSize[1] + 6;
+                }
+            } catch (e) {}
+            return fallbackH;
         }
 
-        function updateScrollLayout() {
+        function applyScrollPosition() {
+            var scrollY = vScrollBar.visible ? Math.round(vScrollBar.value) : 0;
+            var vpW = scrollViewport.bounds ? (scrollViewport.bounds[2] - scrollViewport.bounds[0]) : 300;
+            var isWide = (win.size && win.size[0] >= 560);
+
+            if (isWide) {
+                var gap = 10;
+                var leftW = Math.floor((vpW - gap) * 0.50);
+                var rightW = Math.max(120, vpW - gap - leftW);
+                var hSetup = measureSectionHeight(tabSetup, leftW, accExpanded ? 490 : 350);
+                var hCursor = measureSectionHeight(tabCursor, rightW, 195);
+                var hFrame = measureSectionHeight(tabFrame, rightW, 240);
+
+                tabSetup.bounds = [0, -scrollY, leftW, hSetup - scrollY];
+                tabCursor.bounds = [leftW + gap, -scrollY, leftW + gap + rightW, hCursor - scrollY];
+                tabFrame.bounds = [leftW + gap, hCursor + 8 - scrollY, leftW + gap + rightW, hCursor + 8 + hFrame - scrollY];
+            } else {
+                var hS = measureSectionHeight(tabSetup, vpW, accExpanded ? 490 : 350);
+                var hC = measureSectionHeight(tabCursor, vpW, 195);
+                var hF = measureSectionHeight(tabFrame, vpW, 240);
+
+                tabSetup.bounds = [0, -scrollY, vpW, hS - scrollY];
+                tabCursor.bounds = [0, -scrollY, vpW, hC - scrollY];
+                tabFrame.bounds = [0, -scrollY, vpW, hF - scrollY];
+            }
+
+            try { tabSetup.layout.layout(true); } catch (e1) {}
+            try { tabCursor.layout.layout(true); } catch (e2) {}
+            try { tabFrame.layout.layout(true); } catch (e3) {}
+        }
+
+        function layoutResponsive() {
             try {
-                win.layout.layout(true);
-                win.layout.resize();
+                var winW = (win.size && win.size[0] > 40) ? win.size[0] : (win.bounds ? (win.bounds[2] - win.bounds[0]) : 350);
+                var winH = (win.size && win.size[1] > 40) ? win.size[1] : (win.bounds ? (win.bounds[3] - win.bounds[1]) : 650);
+                var pad = (winW < 240) ? 6 : 10;
+                var innerW = Math.max(140, winW - pad * 2);
+                var isWide = (winW >= 560);
+                var isShort = (winH < 390);
 
-                var activeGrp = getActiveTabGroup();
-                var vpH = scrollViewport.size ? scrollViewport.size[1] : 220;
-                var contentH = activeGrp.preferredSize ? activeGrp.preferredSize[1] : 220;
+                // 1. Header pinned to top
+                var headerH = 30;
+                subTxt.visible = (winW >= 250);
+                headerGrp.bounds = [pad, 6, pad + innerW, 6 + headerH];
+                headerGrp.layout.layout(true);
 
-                if (contentH > vpH + 4 && vpH > 40) {
+                // 2. Preview Canvas below header (auto-compacts on short heights)
+                var previewY = 6 + headerH + 6;
+                var previewH = isShort ? 38 : (isWide ? 132 : 118);
+                previewCanvas.bounds = [pad, previewY, pad + innerW, previewY + previewH];
+
+                // 3. Tab Bar (exact equal-width pixel bounds on all 3 tabs — never clips!)
+                var bodyY = previewY + previewH + 6;
+                if (isWide) {
+                    tabBar.visible = false;
+                    tabBar.bounds = [pad, bodyY, pad + innerW, bodyY];
+                } else {
+                    tabBar.visible = true;
+                    var tabBarH = 28;
+                    tabBar.bounds = [pad, bodyY, pad + innerW, bodyY + tabBarH];
+                    var tabGap = 4;
+                    var tabW = Math.floor((innerW - tabGap * 2) / 3);
+                    for (var ti = 0; ti < tabOrder.length; ti++) {
+                        var tId = tabOrder[ti];
+                        var tx0 = ti * (tabW + tabGap);
+                        var tx1 = (ti === tabOrder.length - 1) ? innerW : (tx0 + tabW);
+                        tabButtons[tId].bounds = [tx0, 0, tx1, tabBarH];
+                    }
+                    bodyY += tabBarH + 6;
+                }
+
+                // 4. Pinned Bottom Footer (Generate Rig ALWAYS visible & legible!)
+                var footerH = 34;
+                var footerY = Math.max(bodyY + 36, winH - footerH - 8);
+                bottomBar.bounds = [pad, footerY, pad + innerW, footerY + footerH];
+                var bGap = 5;
+                var resetW = (innerW < 230) ? 44 : 52;
+                var updW = (innerW < 230) ? 50 : 58;
+                var buildW = Math.max(70, innerW - resetW - updW - bGap * 2);
+                btnBuild.bounds = [0, 0, buildW, footerH];
+                btnUpdateRig.bounds = [buildW + bGap, 0, buildW + bGap + updW, footerH];
+                btnReset.bounds = [buildW + bGap * 2 + updW, 0, innerW, footerH];
+
+                // 5. Middle Scrollable Body Viewport gets EXACT remaining height
+                var bodyH = Math.max(36, footerY - bodyY - 6);
+                bodyHost.bounds = [pad, bodyY, pad + innerW, bodyY + bodyH];
+
+                if (isWide) {
+                    tabSetup.visible = true;
+                    tabCursor.visible = true;
+                    tabFrame.visible = true;
+                } else {
+                    tabSetup.visible = (activeTab === "setup");
+                    tabCursor.visible = (activeTab === "cursor");
+                    tabFrame.visible = (activeTab === "frame");
+                }
+
+                // First-pass height measurement without scrollbar
+                var testVpW = innerW;
+                var contentH = 200;
+                if (isWide) {
+                    var gW = 10;
+                    var lW = Math.floor((testVpW - gW) * 0.50);
+                    var rW = Math.max(120, testVpW - gW - lW);
+                    var hS0 = measureSectionHeight(tabSetup, lW, accExpanded ? 490 : 350);
+                    var hC0 = measureSectionHeight(tabCursor, rW, 195);
+                    var hF0 = measureSectionHeight(tabFrame, rW, 240);
+                    contentH = Math.max(hS0, hC0 + hF0 + 8);
+                } else {
+                    var activeGrp = (activeTab === "cursor") ? tabCursor : ((activeTab === "frame") ? tabFrame : tabSetup);
+                    var fbH = (activeTab === "cursor") ? 195 : ((activeTab === "frame") ? 240 : (accExpanded ? 490 : 350));
+                    contentH = measureSectionHeight(activeGrp, testVpW, fbH);
+                }
+
+                var needsScroll = (contentH > bodyH + 2);
+                var sbW = needsScroll ? 15 : 0;
+                var vpW = Math.max(110, innerW - sbW - (needsScroll ? 3 : 0));
+
+                scrollViewport.bounds = [0, 0, vpW, bodyH];
+                if (needsScroll) {
                     vScrollBar.visible = true;
+                    vScrollBar.bounds = [vpW + 3, 0, innerW, bodyH];
                     vScrollBar.minvalue = 0;
-                    vScrollBar.maxvalue = Math.max(1, contentH - vpH + 12);
-                    vScrollBar.value = Math.min(vScrollBar.value, vScrollBar.maxvalue);
-                    tabContainer.location = [0, -Math.round(vScrollBar.value)];
+                    vScrollBar.maxvalue = Math.max(1, contentH - bodyH + 12);
+                    if (vScrollBar.value > vScrollBar.maxvalue) vScrollBar.value = vScrollBar.maxvalue;
                 } else {
                     vScrollBar.visible = false;
                     vScrollBar.value = 0;
-                    tabContainer.location = [0, 0];
                 }
-            } catch (eSc) {}
+
+                applyScrollPosition();
+                for (var tk = 0; tk < tabOrder.length; tk++) {
+                    try { tabButtons[tabOrder[tk]].notify("onDraw"); } catch (eTb) {}
+                }
+                redrawPreview();
+            } catch (eLay) {}
         }
 
         vScrollBar.onChanging = function () {
-            try {
-                tabContainer.location = [0, -Math.round(vScrollBar.value)];
-            } catch (eScr) {}
+            applyScrollPosition();
         };
 
         function selectTab(tabName) {
             activeTab = tabName;
-            tabSetup.visible = (tabName === "setup");
-            tabCursor.visible = (tabName === "cursor");
-            tabFrame.visible = (tabName === "frame");
             vScrollBar.value = 0;
-            tabContainer.location = [0, 0];
-
-            for (var tk in tabButtons) {
-                if (tabButtons.hasOwnProperty(tk)) {
-                    try { tabButtons[tk].notify("onDraw"); } catch (eTb) {}
-                }
-            }
-            updateScrollLayout();
-            redrawPreview();
+            layoutResponsive();
         }
 
-        // Gather current options helper
         function gatherOptions() {
             var feelChoice = "natural";
             if (radSnappy.value) feelChoice = "snappy";
@@ -3120,6 +3402,9 @@
                 enableClickBounce: chkClickBounce.value,
                 enableMotionBlur: chkMotionBlur.value,
                 enableTypingSpeedup: chkTypingSpeedup.value,
+                enableTypingZoom: chkTypingZoom.value,
+                enableScrollSpeedup: chkScrollSpeedup.value,
+                enableScrollZoom: chkScrollZoom.value,
                 swayAmount: chkVelocitySway.value ? 0.4 : 0.0,
                 syncOffsetMs: currentSyncOffsetMs,
                 cursorStyle: currentCursorKey,
@@ -3145,7 +3430,6 @@
                 selectTab("setup");
                 return;
             }
-
             if (!selectedJsonFile || !selectedJsonFile.exists) {
                 var baseF = selectedVideoFile.fsName.replace(/\.[^\.]+$/, "");
                 var cands = [
@@ -3155,10 +3439,7 @@
                     new File(selectedVideoFile.fsName + ".json")
                 ];
                 for (var ci2 = 0; ci2 < cands.length; ci2++) {
-                    if (cands[ci2].exists) {
-                        selectedJsonFile = cands[ci2];
-                        break;
-                    }
+                    if (cands[ci2].exists) { selectedJsonFile = cands[ci2]; break; }
                 }
                 if (!selectedJsonFile || !selectedJsonFile.exists) {
                     alert("Companion mouse telemetry JSON file not found. Please click Relink to select your .cursor.json file.", "Input Error");
@@ -3166,12 +3447,9 @@
                     return;
                 }
             }
-
             try {
                 var builtComp = buildTraceMotionRig(selectedVideoFile, selectedJsonFile, gatherOptions());
-                if (builtComp) {
-                    statusTxt.text = "Rig Active";
-                }
+                if (builtComp) statusTxt.text = "Rig Active";
             } catch (err) {}
         };
 
@@ -3190,16 +3468,20 @@
             currentZoomMode = "auto-cluster";
             radAutoZoom.value = true; radFollow.value = false; radStatic.value = false;
             currentZoomScale = 1.80;
-            zDepthSlider.value = 180; zDepthSlider.enabled = true; zDepthValTxt.text = "1.80x";
+            zDepthSlider.value = 180; zDepthValTxt.text = "1.80x";
 
             currentMotionFeel = "natural";
             radNatural.value = true; radSnappy.value = false; radSilky.value = false; radRaw.value = false;
+
+            optTypingSpeedup = true; chkTypingSpeedup.value = true; savePref("enableTypingSpeedup", true);
+            optTypingZoom = true; chkTypingZoom.value = true; savePref("enableTypingZoom", true);
+            optScrollSpeedup = true; chkScrollSpeedup.value = true; savePref("enableScrollSpeedup", true);
+            optScrollZoom = true; chkScrollZoom.value = true; savePref("enableScrollZoom", true);
 
             chkAutoStates.value = true;
             chkVelocitySway.value = true;
             chkClickBounce.value = true;
             chkMotionBlur.value = true;
-            chkTypingSpeedup.value = true;
             currentSyncOffsetMs = 0;
             syncOffSlider.value = 0; syncOffVal.text = "0ms";
 
@@ -3209,7 +3491,7 @@
             cSizeSlider.value = 100; cSizeValTxt.text = "100%";
             setRippleColor("#2563EB");
 
-            setBackdropKey("tahoe-light.jpg");
+            setBackdropKey("tahoe-light.jpg", false);
             currentCornerRadius = 20; radSlider.value = 20; radValTxt.text = "20px";
             currentMargin = 12; marginSlider.value = 12; marginValTxt.text = "12%";
             currentShadow = 65; shSlider.value = 65; shValTxt.text = "65%";
@@ -3218,22 +3500,32 @@
             redrawPreview();
         };
 
-        // Window Resize Handler (Keeps preview crisp, active tab at top, and footer pinned to bottom)
         win.onResizing = win.onResize = function () {
-            updateScrollLayout();
-            redrawPreview();
+            layoutResponsive();
         };
 
         if (win instanceof Window) {
             win.center();
             win.show();
-            updateScrollLayout();
-            redrawPreview();
+            layoutResponsive();
         } else {
-            win.layout.layout(true);
-            updateScrollLayout();
-            redrawPreview();
+            layoutResponsive();
         }
+
+        // Expose layout helper for automated testing
+        win._layoutResponsive = layoutResponsive;
+        win._selectTab = selectTab;
+        win._refs = {
+            previewCanvas: previewCanvas,
+            tabBar: tabBar,
+            bodyHost: bodyHost,
+            scrollViewport: scrollViewport,
+            vScrollBar: vScrollBar,
+            tabSetup: tabSetup,
+            tabCursor: tabCursor,
+            tabFrame: tabFrame,
+            bottomBar: bottomBar
+        };
 
         return win;
     }

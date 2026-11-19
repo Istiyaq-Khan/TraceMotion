@@ -1,4 +1,4 @@
-# CMake temporary build outputs
+# CMake & MSVC build outputs
 obs-telemetry-recorder/build/CMakeFiles/
 obs-telemetry-recorder/build/CMakeCache.txt
 obs-telemetry-recorder/build/cmake_install.cmake
@@ -6,6 +6,7 @@ obs-telemetry-recorder/build/Makefile
 obs-telemetry-recorder/build/*.ninja
 obs-telemetry-recorder/build/*.dir/
 obs-telemetry-recorder/build/CMakeConfigureLog.yaml
+obs-telemetry-recorder/build/*.tlog/
 
 # MSVC object and intermediate files
 *.obj
@@ -15,7 +16,23 @@ obs-telemetry-recorder/build/CMakeConfigureLog.yaml
 *.pdb
 *.idb
 
-# OS and editor temp files
+# Release packaging outputs
+dist/
+release_artifacts/
+*.zip
+*.tar.gz
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor & OS temp files
+.vscode/
+.idea/
+*.suo
+*.user
 .DS_Store
 Thumbs.db
 *.tmp

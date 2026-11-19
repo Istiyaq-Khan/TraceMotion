@@ -1,0 +1,107 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v1.0.0)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Package and Publish Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Rig Tests
+        run: |
+          node scripts/test_es3_panel.js
+          node scripts/test_build_rig.js
+
+      - name: Determine Version
+        id: get_version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=v1.0.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Package Release Assets
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.get_version.outputs.VERSION }}"
+          $distDir = "dist"
+          if (Test-Path $distDir) { Remove-Item -Path $distDir -Recurse -Force }
+          New-Item -ItemType Directory -Path $distDir | Out-Null
+
+          # 1. Package After Effects ScriptUI Panel Package
+          $aeDir = "$distDir/TraceMotion-AfterEffects-Panel"
+          New-Item -ItemType Directory -Path $aeDir | Out-Null
+          Copy-Item "after-effects-importer/TraceMotionImporter.jsx" -Destination $aeDir
+          Copy-Item -Path "after-effects-importer/assets" -Destination $aeDir -Recurse
+          
+          # Create quick install guide for After Effects
+          $aeInstallTxt = @"
+          TraceMotion Studio - After Effects Panel Installation
+          =====================================================
+
+          1. Copy 'TraceMotionImporter.jsx' AND the 'assets' folder into your After Effects ScriptUI Panels directory:
+             - Windows: C:\Program Files\Adobe\Adobe After Effects <version>\Support Files\Scripts\ScriptUI Panels\
+             - macOS: /Applications/Adobe After Effects <version>/Scripts/ScriptUI Panels/
+
+          2. In After Effects, navigate to:
+             - Edit > Preferences > Scripting & Expressions
+             - Ensure 'Allow Scripts to Write Files and Access Network' is CHECKED.
+
+          3. Restart After Effects.
+          4. Open TraceMotion from the menu: Window > TraceMotionImporter.jsx
+          "@
+          Set-Content -Path "$aeDir/HOW_TO_INSTALL_AE.txt" -Value $aeInstallTxt
+
+          $aeZip = "$distDir/TraceMotion-AfterEffects-Panel-$ver.zip"
+          Compress-Archive -Path "$aeDir/*" -DestinationPath $aeZip -Force
+          Write-Host "Created $aeZip"
+
+          # 2. Package OBS Studio Plugin Package
+          $obsDir = "$distDir/TraceMotion-OBS-Plugin"
+          New-Item -ItemType Directory -Path $obsDir | Out-Null
+          Copy-Item "obs-telemetry-recorder/build/tracemotion-obs.dll" -Destination $obsDir
+          Copy-Item -Path "obs-telemetry-recorder/data" -Destination $obsDir -Recurse
+          Copy-Item "install_obs_plugin.bat" -Destination $obsDir
+          Copy-Item "HOW_TO_INSTALL.txt" -Destination $obsDir
+          
+          $obsZip = "$distDir/TraceMotion-OBS-Plugin-Windows-x64-$ver.zip"
+          Compress-Archive -Path "$obsDir/*" -DestinationPath $obsZip -Force
+          Write-Host "Created $obsZip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          name: TraceMotion ${{ steps.get_version.outputs.VERSION }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            dist/*.zip
