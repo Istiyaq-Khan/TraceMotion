@@ -1,5 +1,7 @@
 const fs = require('fs');
-const code = fs.readFileSync('d:/all my code/TraceMotion/after-effects-importer/TraceMotionImporter.jsx', 'utf8');
+const path = require('path');
+const jsxPath = path.resolve(__dirname, '../after-effects-importer/TraceMotionImporter.jsx');
+const code = fs.readFileSync(jsxPath, 'utf8');
 
 // Mock AE DOM
 class MockProp {
@@ -75,6 +77,17 @@ class MockComp {
     }
 }
 
+const fallbackTelemetryJson = JSON.stringify({
+    samples: [
+        { timeMs: 0, cx: 0.5, cy: 0.5, interactionType: "move", cursorType: "arrow" },
+        { timeMs: 500, cx: 0.52, cy: 0.51, interactionType: "click", cursorType: "arrow" },
+        { timeMs: 516, cx: 0.52, cy: 0.51, interactionType: "mouseup", cursorType: "arrow" },
+        { timeMs: 1200, cx: 0.43, cy: 0.34, interactionType: "click", cursorType: "text" },
+        { timeMs: 2500, cx: 0.43, cy: 0.34, interactionType: "move", cursorType: "text" },
+        { timeMs: 4000, cx: 0.65, cy: 0.72, interactionType: "move", cursorType: "arrow" }
+    ]
+});
+
 const mockContext = {
     Array: Array,
     Math: Math,
@@ -85,18 +98,22 @@ const mockContext = {
     Date: Date,
     JSON: JSON,
     File: function(name) {
+        const fileExists = fs.existsSync(name);
         return {
-            name: name,
+            name: path.basename(name),
             fsName: name,
-            exists: fs.existsSync(name),
+            exists: true, // Always true for mock testing
             open: function() {},
-            read: function() { return fs.readFileSync(name, 'utf8'); },
+            read: function() {
+                if (fileExists) return fs.readFileSync(name, 'utf8');
+                return fallbackTelemetryJson;
+            },
             close: function() {}
         };
     },
     Folder: function(name) {
         return {
-            name: name,
+            name: path.basename(name),
             fsName: name,
             exists: fs.existsSync(name),
             getFiles: function() { return []; }
@@ -151,8 +168,8 @@ console.log("TraceMotion exports:", Object.keys(TM));
 
 // Now run buildRig
 try {
-    const videoF = new mockContext.File("C:/Users/istiy/Videos/2026-11-19 01-56-53.mp4");
-    const jsonF = new mockContext.File("C:/Users/istiy/Videos/2026-11-19 01-56-53.mp4.cursor.json");
+    const videoF = new mockContext.File("mock_video.mp4");
+    const jsonF = new mockContext.File("mock_video.mp4.cursor.json");
     const opts = {
         zoomMode: "auto-cluster",
         zoomDepthScale: 1.80,

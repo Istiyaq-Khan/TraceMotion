@@ -308,14 +308,22 @@
                 var scriptF = new File($.fileName);
                 if (scriptF && scriptF.parent && scriptF.parent.exists) {
                     searchDirs.push(scriptF.parent.fsName + "/assets/cursors/" + style.folder + "/");
+                    searchDirs.push(scriptF.parent.fsName + "/after-effects-importer/assets/cursors/" + style.folder + "/");
                 }
             }
         } catch (e) {}
 
-        searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/" + style.folder + "/");
+        try {
+            if (typeof Folder !== "undefined" && Folder.current && Folder.current.exists) {
+                searchDirs.push(Folder.current.fsName + "/assets/cursors/" + style.folder + "/");
+                searchDirs.push(Folder.current.fsName + "/after-effects-importer/assets/cursors/" + style.folder + "/");
+            }
+        } catch (eCur) {}
+
         if (typeof Folder !== "undefined" && Folder.userData && Folder.userData.fsName) {
             searchDirs.push(Folder.userData.fsName + "/Adobe/After Effects/TraceMotion/assets/cursors/" + style.folder + "/");
         }
+        searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/" + style.folder + "/");
 
         for (var d = 0; d < searchDirs.length; d++) {
             var baseDir = searchDirs[d];
@@ -343,9 +351,18 @@
                 if (scriptF && scriptF.parent && scriptF.parent.exists) {
                     searchDirs.push(scriptF.parent.fsName + "/assets/cursors/previews/" + styleId + ".png");
                     searchDirs.push(scriptF.parent.fsName + "/assets/cursors/previews/" + styleId + "_preview.png");
+                    searchDirs.push(scriptF.parent.fsName + "/after-effects-importer/assets/cursors/previews/" + styleId + ".png");
                 }
             }
         } catch (e) {}
+
+        try {
+            if (typeof Folder !== "undefined" && Folder.current && Folder.current.exists) {
+                searchDirs.push(Folder.current.fsName + "/assets/cursors/previews/" + styleId + ".png");
+                searchDirs.push(Folder.current.fsName + "/after-effects-importer/assets/cursors/previews/" + styleId + ".png");
+            }
+        } catch (eCur) {}
+
         searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/previews/" + styleId + ".png");
         searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/cursors/previews/" + styleId + "_preview.png");
 
@@ -437,14 +454,22 @@
                 var scriptF = new File($.fileName);
                 if (scriptF && scriptF.parent && scriptF.parent.exists) {
                     searchDirs.push(scriptF.parent.fsName + "/assets/wallpapers/" + filename);
+                    searchDirs.push(scriptF.parent.fsName + "/after-effects-importer/assets/wallpapers/" + filename);
                 }
             }
         } catch (e) {}
 
-        searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/wallpapers/" + filename);
+        try {
+            if (typeof Folder !== "undefined" && Folder.current && Folder.current.exists) {
+                searchDirs.push(Folder.current.fsName + "/assets/wallpapers/" + filename);
+                searchDirs.push(Folder.current.fsName + "/after-effects-importer/assets/wallpapers/" + filename);
+            }
+        } catch (eCur) {}
+
         if (typeof Folder !== "undefined" && Folder.userData && Folder.userData.fsName) {
             searchDirs.push(Folder.userData.fsName + "/Adobe/After Effects/TraceMotion/assets/wallpapers/" + filename);
         }
+        searchDirs.push("D:/all my code/TraceMotion/after-effects-importer/assets/wallpapers/" + filename);
 
         for (var d = 0; d < searchDirs.length; d++) {
             var f = new File(searchDirs[d]);

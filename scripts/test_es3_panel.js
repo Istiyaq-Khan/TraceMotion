@@ -1,5 +1,7 @@
 const fs = require('fs');
-let code = fs.readFileSync('d:/all my code/TraceMotion/after-effects-importer/TraceMotionImporter.jsx', 'utf8');
+const path = require('path');
+const jsxPath = path.resolve(__dirname, '../after-effects-importer/TraceMotionImporter.jsx');
+let code = fs.readFileSync(jsxPath, 'utf8');
 
 // Test ES3 compatibility by deleting Object.keys before executing
 const mockContext = {
